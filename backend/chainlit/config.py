@@ -407,6 +407,7 @@ class CodeSettings(BaseModel):
 
 class ProjectSettings(BaseModel):
     allow_origins: List[str] = Field(default_factory=lambda: ["*"])
+    modes: list[str] = Field(default_factory=lambda: [])
     # Socket.io client transports option
     transports: Optional[List[str]] = None
     # List of environment variables to be provided by each user to use the app. If empty, no environment variables will be asked to the user.

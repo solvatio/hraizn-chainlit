@@ -78,6 +78,7 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
+from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -227,8 +228,8 @@ sio = socketio.AsyncServer(cors_allowed_origins=[], async_mode="asgi")
 asgi_app = socketio.ASGIApp(socketio_server=sio, socketio_path="")
 
 # config.run.root_path is only set when started with --root-path. Not on submounts.
-SOCKET_IO_PATH = f"{config.run.root_path}/ws/socket.io"
-app.mount(SOCKET_IO_PATH, asgi_app)
+app.mount("/{context:path}/ws/socket.io", asgi_app)
+app.mount("/ws/socket.io", asgi_app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -245,7 +246,7 @@ class SafariWebSocketsCompatibleGZipMiddleware(GZipMiddleware):
             return await self.app(scope, receive, send)
 
         # Prevent gzip compression for HTTP requests to socket.io path due to a bug in Safari
-        if URL(scope=scope).path.startswith(SOCKET_IO_PATH):
+        if "ws/socket.io" in URL(scope=scope).path:
             await self.app(scope, receive, send)
         else:
             await super().__call__(scope, receive, send)
@@ -254,7 +255,7 @@ class SafariWebSocketsCompatibleGZipMiddleware(GZipMiddleware):
 app.add_middleware(SafariWebSocketsCompatibleGZipMiddleware)
 
 # config.run.root_path is only set when started with --root-path. Not on submounts.
-router = APIRouter(prefix=config.run.root_path)
+router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), modes=config.project.modes)
 
 
 @router.get("/public/{filename:path}")
@@ -1711,24 +1712,40 @@ async def get_avatar(avatar_id: str):
     return await get_favicon()
 
 
-@router.head("/")
+@router.underlying.head("/")
 def status_check():
     """Check if the site is operational."""
     return {"message": "Site is operational"}
 
 
-@router.get("/{full_path:path}")
-async def serve(request: Request):
+@router.underlying.get("/{full_path:path}")
+async def serve(request: Request, full_path: str):
     """Serve the UI files."""
     root_path = os.getenv("CHAINLIT_PARENT_ROOT_PATH", "") + os.getenv(
         "CHAINLIT_ROOT_PATH", ""
     )
-    html_template = get_html_template(root_path)
-    response = HTMLResponse(content=html_template, status_code=200)
+    # if the user accesses with context query parameters
+    # it encodes the params into a path to redirect to:
+    redirect_path = get_mode_params_redirect(root_path, request.url.path, dict(request.query_params))
+    if redirect_path:
+        root_path += f"/{redirect_path}"
+        redirect_url = f"{request.base_url}{root_path.lstrip('/')}"
+        return RedirectResponse(url=redirect_url, status_code=307)
+    else:
+        mode = get_mode(root_path, request.url.path)
+        if mode.path:
+            root_path += f"/{mode.path}"
+            html_template = get_html_template(root_path)
+            response = HTMLResponse(content=html_template, status_code=200)
+            return response
+        else:
+            # if no mode is provided or the mode is unknown, we
+            # redirect to <current base URL>/<default mode>
+            root_path += f"/{mode.default_name}"
+            redirect_url = f"{request.base_url}{root_path.lstrip('/')}"
+            return RedirectResponse(url=redirect_url, status_code=307)
 
-    return response
 
-
-app.include_router(router)
+app.include_router(router.underlying)
 
 import chainlit.socket  # noqa
