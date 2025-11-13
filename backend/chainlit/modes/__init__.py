@@ -97,8 +97,10 @@ class ModeRouterWrapper:
 
     def __init__(self, router: APIRouter, modes=None):
         self.router = router
+        if modes is None:
+            modes = []
         # normalize profiles to strings without leading/trailing slashes
-        self.modes = [str(p).strip("/") for p in modes or {""}]
+        self.modes = [str(p).strip("/") for p in modes]
 
     def _wrap_method(self, method_name: str) -> Callable[..., Callable]:
         """
@@ -108,14 +110,15 @@ class ModeRouterWrapper:
         def method(path: str, *args: Any, **kwargs: Any):
             def decorator(func: Callable):
                 # Register the original route on the underlying router
-                # getattr(self.router, method_name)(path, *args, **kwargs)(func)
-
-                # Register each profile-prefixed route
-                for mode in self.modes:
-                    prefixed_path = f"/{mode}{path}" # /agent/api
-                    getattr(self.router, method_name)(prefixed_path, *args, **kwargs)(func)
-                    mode_params_path = f"/{mode}/context/{{context}}{path}" # /agent/context/foobar/api
-                    getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
+                if not self.modes:
+                    getattr(self.router, method_name)(path, *args, **kwargs)(func)
+                else:
+                    # Register each profile-prefixed route
+                    for mode in self.modes:
+                        prefixed_path = f"/{mode}{path}" # /agent/api
+                        getattr(self.router, method_name)(prefixed_path, *args, **kwargs)(func)
+                        mode_params_path = f"/{mode}/context/{{context}}{path}" # /agent/context/foobar/api
+                        getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
                 return func
             return decorator
         return method

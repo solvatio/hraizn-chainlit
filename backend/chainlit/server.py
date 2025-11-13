@@ -1737,6 +1737,10 @@ async def serve(request: Request, full_path: str):
             html_template = get_html_template(root_path)
             response = HTMLResponse(content=html_template, status_code=200)
             return response
+        elif not mode.default_name:
+            html_template = get_html_template(root_path)
+            response = HTMLResponse(content=html_template, status_code=200)
+            return response
         else:
             # if no mode is provided or the mode is unknown, we
             # redirect to <current base URL>/<default mode>
