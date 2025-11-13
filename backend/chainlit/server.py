@@ -1729,8 +1729,7 @@ async def serve(request: Request, full_path: str):
     redirect_path = get_mode_params_redirect(root_path, request.url.path, dict(request.query_params))
     if redirect_path:
         root_path += f"/{redirect_path}"
-        redirect_url = f"{request.base_url}{root_path.lstrip('/')}"
-        return RedirectResponse(url=redirect_url, status_code=307)
+        return RedirectResponse(url=root_path, status_code=307)
     else:
         mode = get_mode(root_path, request.url.path)
         if mode.path:
@@ -1742,8 +1741,7 @@ async def serve(request: Request, full_path: str):
             # if no mode is provided or the mode is unknown, we
             # redirect to <current base URL>/<default mode>
             root_path += f"/{mode.default_name}"
-            redirect_url = f"{request.base_url}{root_path.lstrip('/')}"
-            return RedirectResponse(url=redirect_url, status_code=307)
+            return RedirectResponse(url=root_path, status_code=307)
 
 
 app.include_router(router.underlying)
