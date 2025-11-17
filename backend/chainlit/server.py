@@ -389,7 +389,7 @@ def get_html_template(root_path):
     <link rel="icon" href="{favicon_path}" />
     <meta name="description" content="{config.ui.description}">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="{config.ui.name}">
+    <meta property="og:title" content="{config.ui.long_name or config.ui.name}">
     <meta property="og:description" content="{config.ui.description}">
     <meta property="og:image" content="{meta_image_url}">
     <meta property="og:url" content="{default_url}">

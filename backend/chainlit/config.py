@@ -320,6 +320,7 @@ class HeaderLink(BaseModel):
 
 class UISettings(BaseModel):
     name: str
+    long_name: str = ""
     description: str = ""
     cot: Literal["hidden", "tool_call", "full"] = "full"
     default_theme: Optional[Literal["light", "dark"]] = "dark"
