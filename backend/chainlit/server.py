@@ -273,7 +273,7 @@ async def serve_public_file(
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     if file_path.is_file():
-        return FileResponse(file_path, headers={"Cache-Control": "public, max-age=300"})
+        return FileResponse(file_path, headers={"Cache-Control": "no-cache"})
     else:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -1684,7 +1684,7 @@ async def get_logo(theme: Optional[Theme] = Query(Theme.light)):
 
     media_type, _ = mimetypes.guess_type(logo_path)
 
-    return FileResponse(logo_path, media_type=media_type)
+    return FileResponse(logo_path, media_type=media_type, headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/avatars/{avatar_id:str}")
