@@ -254,6 +254,8 @@ class SafariWebSocketsCompatibleGZipMiddleware(GZipMiddleware):
 
 app.add_middleware(SafariWebSocketsCompatibleGZipMiddleware)
 
+
+
 # config.run.root_path is only set when started with --root-path. Not on submounts.
 router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), modes=config.project.modes)
 
@@ -271,10 +273,9 @@ async def serve_public_file(
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     if file_path.is_file():
-        return FileResponse(file_path)
+        return FileResponse(file_path, headers={"Cache-Control": "public, max-age=300"})
     else:
         raise HTTPException(status_code=404, detail="File not found")
-
 
 @router.get("/assets/{filename:path}")
 async def serve_asset_file(
