@@ -397,7 +397,7 @@ def get_html_template(root_path):
     <meta property="og:root_path" content="{root_path}">"""
 
     if os.getenv("EXCLUDE_ROBOTS_INDEX", 'False').lower() in ('true', '1', 't', 'yes', 'y'):
-        tags += '\n<meta name="robots" content="noindex, nofollow">'
+        tags += '\n    <meta name="robots" content="noindex, nofollow">'
 
     js = f"""<script>
 {f"window.theme = {json.dumps(custom_theme.get('variables'))};" if custom_theme and custom_theme.get("variables") else "undefined"}
