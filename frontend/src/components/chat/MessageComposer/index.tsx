@@ -160,7 +160,7 @@ export default function MessageComposer({
   return (
     <div
       id="message-composer"
-      className="bg-accent dark:bg-card rounded-3xl p-3 px-4 w-full flex items-start gap-2"
+      className="bg-accent dark:bg-card rounded-3xl p-1 px-4 w-full flex items-start gap-2"
     >
       {attachments.length > 0 && (
         <div className="mr-2">
