@@ -179,6 +179,7 @@ export default function MessageComposer({
           onPaste={onPaste}
           onEnter={submit}
           placeholder={t('chat.input.placeholder')}
+          className="min-h-10 py-2 leading-normal"
         />
       </div>
 
