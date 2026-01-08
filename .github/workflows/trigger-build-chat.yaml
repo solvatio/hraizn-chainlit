@@ -2,6 +2,8 @@ name: Trigger Build Chat
 
 on:
   push:
+    paths:
+      - 'backend/**'
     branches:
       - hraizn/dev
       - hraizn/release-candidate
