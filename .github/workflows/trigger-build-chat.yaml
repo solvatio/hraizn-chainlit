@@ -1,0 +1,27 @@
+name: Trigger Build Chat
+
+on:
+  push:
+    branches:
+      - hraizn/dev
+      - hraizn/release-candidate
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call API to get token
+        id: get_token
+        run: |
+          response=$(curl -s "https://hraizn-mgmt.azurewebsites.net/api/GetGithubToken?code=${{ secrets.TOKEN_API_CODE }}")
+          echo "token=$response" >> $GITHUB_OUTPUT
+
+      - name: Trigger Build Chat
+        run: |
+          BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${{ steps.get_token.outputs.token }}" \
+            https://api.github.com/repos/solvatio/hraizn-saas-apps/workflows/trigger-build-chat.yml/dispatches \
+            -d '{"ref":"'"${BRANCH#*/}"'"}'
+
