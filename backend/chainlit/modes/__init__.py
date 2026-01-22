@@ -1,9 +1,10 @@
 import dataclasses
 import json
+import os
 from typing import Callable, Any
 
 from chainlit.config import config
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 @dataclasses.dataclass
 class Mode:
@@ -82,6 +83,13 @@ def get_mode(root_path: str, path: str, modes: list[str] = None)  -> Mode:
     if mode_params and mode:
         return Mode(name = mode, params = mode_params, path = f"{mode}/context/{mode_params}", default_name=default_mode)
     return Mode(name = None, params = None, path = None, default_name=default_mode)
+
+def get_mode_from_request(request: Request):
+    root_path = os.getenv("CHAINLIT_PARENT_ROOT_PATH", "") + os.getenv(
+        "CHAINLIT_ROOT_PATH", ""
+    )
+    mode = get_mode(root_path=root_path, path=request.url.path)
+    return mode.name
 
 class ModeRouterWrapper:
     """

@@ -78,7 +78,7 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
-from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect
+from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -461,7 +461,8 @@ def get_user_facing_url(url: URL):
 
 @router.get("/auth/config")
 async def auth(request: Request):
-    return get_configuration()
+    mode_name = get_mode_from_request(request)
+    return get_configuration(mode=mode_name)
 
 
 def _get_response_dict(access_token: str) -> dict:
@@ -513,6 +514,12 @@ async def _authenticate_user(
             detail="credentialssignin",
         )
 
+    mode: str|None = chainlit.modes.get_mode_from_request(request)
+    if user.metadata.get("mode", None) != mode:
+        raise HTTPException(
+            status_code=401, detail="Invalid authentication token"
+        )
+
     # If a data layer is defined, attempt to persist user.
     if data_layer := get_data_layer():
         try:
@@ -545,8 +552,9 @@ async def login(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No auth_callback defined"
         )
 
+    mode_name = get_mode_from_request(request)
     user = await config.code.password_auth_callback(
-        form_data.username, form_data.password
+        form_data.username, form_data.password, mode_name
     )
 
     return await _authenticate_user(request, user)

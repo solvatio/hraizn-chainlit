@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from chainlit.config import config
 from chainlit.data import get_data_layer
@@ -14,11 +14,13 @@ from .cookie import (
     set_auth_cookie,
 )
 from .jwt import create_jwt, decode_jwt, get_jwt_secret
+from ..modes import get_mode_from_request
 
 reuseable_oauth = OAuth2PasswordBearerWithCookie(tokenUrl="/login", auto_error=False)
 
 
 def ensure_jwt_secret():
+    pass
     if require_login() and get_jwt_secret() is None:
         raise ValueError(
             "You must provide a JWT secret in the environment to use authentication. Run `chainlit create-secret` to generate one."
@@ -29,7 +31,11 @@ def is_oauth_enabled():
     return config.code.oauth_callback and len(get_configured_oauth_providers()) > 0
 
 
-def require_login():
+def require_login(mode: str = None):
+    if mode in config.project.password_auth_callback_modes:
+        return True
+    if config.project.modes:
+        return False
     return (
         bool(os.environ.get("CHAINLIT_CUSTOM_AUTH"))
         or config.code.password_auth_callback is not None
@@ -38,9 +44,9 @@ def require_login():
     )
 
 
-def get_configuration():
+def get_configuration(mode: str):
     return {
-        "requireLogin": require_login(),
+        "requireLogin": require_login(mode),
         "passwordAuth": config.code.password_auth_callback is not None,
         "headerAuth": config.code.header_auth_callback is not None,
         "oauthProviders": (
@@ -55,13 +61,18 @@ def get_configuration():
     }
 
 
-async def authenticate_user(token: str = Depends(reuseable_oauth)):
+async def authenticate_user(mode_name: str = None, token: str = Depends(reuseable_oauth)):
     try:
         user = decode_jwt(token)
     except Exception as e:
         raise HTTPException(
             status_code=401, detail="Invalid authentication token"
         ) from e
+
+    if user.metadata.get("mode", None) != mode_name:
+        raise HTTPException(
+            status_code=401, detail="Invalid authentication token"
+        )
 
     if data_layer := get_data_layer():
         # Get or create persistent user if we've a data layer available.
@@ -83,11 +94,15 @@ async def authenticate_user(token: str = Depends(reuseable_oauth)):
     return user
 
 
-async def get_current_user(token: str = Depends(reuseable_oauth)):
-    if not require_login():
+async def get_current_user(request: Request = None, mode_name: str = None, token: str = Depends(reuseable_oauth)):
+    if request is not None:
+        mode_name = get_mode_from_request(request)
+    else:
+        mode_name = mode_name
+    if not require_login(mode=mode_name):
         return None
 
-    return await authenticate_user(token)
+    return await authenticate_user(mode_name=mode_name, token=token)
 
 
 __all__ = [

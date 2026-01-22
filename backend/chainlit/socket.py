@@ -6,6 +6,7 @@ from urllib.parse import unquote
 from starlette.requests import cookie_parser
 from typing_extensions import TypeAlias
 
+import chainlit.modes
 from chainlit.auth import (
     get_current_user,
     get_token_from_cookies,
@@ -105,12 +106,20 @@ def _get_token(environ: WSGIEnvironment) -> Optional[str]:
     """Take WSGI environ, return access token."""
     return _get_token_from_cookie(environ)
 
+def get_mode_name(environ: dict):
+    path_info = environ.get("PATH_INFO", "")
+    if path_info:
+        root_path = config.run.root_path
+        mode = chainlit.modes.get_mode(root_path=root_path, path=path_info)
+    else:
+        mode = None
+    return None if not mode else mode.name
 
 async def _authenticate_connection(
     environ: WSGIEnvironment,
 ) -> Union[Tuple[Union[User, PersistedUser], str], Tuple[None, None]]:
     if token := _get_token(environ):
-        user = await get_current_user(token=token)
+        user = await get_current_user(token=token, mode_name=get_mode_name(environ))
         if user:
             return user, token
 
@@ -123,7 +132,7 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
     token: str | None = None
     thread_id = auth.get("threadId")
 
-    if require_login():
+    if require_login(get_mode_name(environ)):
         try:
             user, token = await _authenticate_connection(environ)
         except Exception as e:
