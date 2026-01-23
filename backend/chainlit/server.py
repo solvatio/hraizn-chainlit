@@ -696,8 +696,10 @@ async def oauth_callback(
 
     (raw_user_data, default_user) = await provider.get_user_info(token)
 
+    mode_name = get_mode_from_request(request)
+
     user = await config.code.oauth_callback(
-        provider_id, token, raw_user_data, default_user
+        provider_id, token, raw_user_data, default_user, mode_name
     )
 
     response = await _authenticate_user(request, user, redirect_to_callback=True)
