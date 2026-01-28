@@ -14,6 +14,7 @@ ACCESS_TOKEN_MISSING = "Access token missing in the response"
 
 class OAuthProvider:
     id: str
+    mode: str = None
     env: List[str]
     client_id: str
     client_secret: str
@@ -21,7 +22,7 @@ class OAuthProvider:
     authorize_params: Dict[str, str]
     default_prompt: Optional[str] = None
 
-    def is_configured(self):
+    def is_configured(self, mode: Optional[str] = None):
         return all([os.environ.get(env) for env in self.env])
 
     async def get_raw_token_response(self, code: str, url: str) -> dict:
@@ -839,12 +840,12 @@ providers = [
 ]
 
 
-def get_oauth_provider(provider: str) -> Optional[OAuthProvider]:
+def get_oauth_provider(provider: str, mode: str = None) -> Optional[OAuthProvider]:
     for p in providers:
-        if p.id == provider:
+        if p.id == provider and p.mode == mode:
             return p
     return None
 
 
-def get_configured_oauth_providers():
-    return [p.id for p in providers if p.is_configured()]
+def get_configured_oauth_providers(mode: str = None):
+    return [p.id for p in providers if p.is_configured(mode)]

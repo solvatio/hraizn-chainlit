@@ -409,6 +409,7 @@ class CodeSettings(BaseModel):
 class ProjectSettings(BaseModel):
     allow_origins: List[str] = Field(default_factory=lambda: ["*"])
     modes: list[str] = Field(default_factory=lambda: [])
+    private_modes: list[str] = Field(default_factory=lambda: [])
     password_auth_callback_modes: list[str] = Field(default_factory=lambda: [])
     azure_oauth_callback_modes: list[str] = Field(default_factory=lambda: [])
     # Socket.io client transports option

@@ -623,7 +623,9 @@ async def oauth_login(provider_id: str, request: Request):
             detail="No oauth_callback defined",
         )
 
-    provider = get_oauth_provider(provider_id)
+    mode_name = get_mode_from_request(request)
+
+    provider = get_oauth_provider(provider_id, mode_name)
     if not provider:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -665,7 +667,9 @@ async def oauth_callback(
             detail="No oauth_callback defined",
         )
 
-    provider = get_oauth_provider(provider_id)
+    mode_name = get_mode_from_request(request)
+
+    provider = get_oauth_provider(provider_id, mode_name)
     if not provider:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

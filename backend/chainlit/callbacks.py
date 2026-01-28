@@ -123,10 +123,11 @@ def oauth_callback(
         Callable[[str, str, Dict[str, str], User, Optional[str]], Awaitable[Optional[User]]]: The decorated authentication callback.
     """
 
-    if len(get_configured_oauth_providers()) == 0:
-        raise ValueError(
-            "You must set the environment variable for at least one oauth provider to use oauth authentication."
-        )
+    # HRAIZN-2144: we don't have any mode information here, so we disable the validation
+    # if len(get_configured_oauth_providers()) == 0:
+    #     raise ValueError(
+    #         "You must set the environment variable for at least one oauth provider to use oauth authentication."
+    #     )
 
     config.code.oauth_callback = wrap_user_function(func)
     return func
