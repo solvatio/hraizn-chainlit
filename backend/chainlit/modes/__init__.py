@@ -12,6 +12,7 @@ class Mode:
     name: str|None = None
     params: str|None = None
     default_name: str|None = None
+    variant: str | None = None
 
     def get_decoded_params(self):
         return _decode_params(self.params) or {}
@@ -58,37 +59,62 @@ def get_mode_from_user_session(user_session):
         return mode
     return None
 
-def get_mode(root_path: str, path: str, modes: list[str] = None)  -> Mode:
+def get_mode(root_path: str, path: str, modes: list[str] = None) -> Mode:
     if modes is None:
         modes = config.project.modes
+
     mode = None
     in_mode_params = False
     mode_params = None
     default_mode = modes[0] if modes else None
-    widget = False
+
+    # NEW: variant parsing via /m/<variant>
+    in_variant = False
+    variant = None
+
     if root_path:
         path = path.removeprefix(root_path)
+
     for segment in path.split("/"):
-        if segment:
-            if in_mode_params:
-                mode_params = segment
-                break
-            elif mode and segment == "context":
-                in_mode_params = True
-            elif mode and segment == "widget":
-                widget = True
-            elif mode:
-                break
-            if segment in modes:
-                mode = segment
-    if not mode_params and mode:
-        path = mode
-        if widget:
-            path = f"{mode}/widget"
-        return Mode(name = mode, params = None, path = path, default_name=default_mode)
-    if mode_params and mode:
-        return Mode(name = mode, params = mode_params, path = f"{mode}/context/{mode_params}", default_name=default_mode)
-    return Mode(name = None, params = None, path = None, default_name=default_mode)
+        if not segment:
+            continue
+
+        if in_mode_params:
+            mode_params = segment
+            in_mode_params = False
+            continue
+
+        if in_variant:
+            variant = segment
+            in_variant = False
+            continue
+
+        if mode and segment == "context":
+            in_mode_params = True
+            continue
+
+        # NEW: reserviertes Segment "m"
+        if mode and segment == "m":
+            in_variant = True
+            continue
+
+        if mode:
+            break
+
+        if segment in modes:
+            mode = segment
+
+    if mode:
+        built_path = mode
+        if mode_params:
+            built_path = f"{mode}/context/{mode_params}"
+        if variant:
+            built_path = f"{built_path}/m/{variant}"
+
+        return Mode(name=mode, params=mode_params, path=built_path, default_name=default_mode)
+
+    return Mode(name=None, params=None, path=None, default_name=default_mode)
+
 
 def get_mode_from_request(request: Request):
     root_path = os.getenv("CHAINLIT_PARENT_ROOT_PATH", "") + os.getenv(
@@ -129,12 +155,15 @@ class ModeRouterWrapper:
                 else:
                     # Register each profile-prefixed route
                     for mode in self.modes:
-                        prefixed_path = f"/{mode}{path}" # /agent/api
+                        # /agent/api
+                        prefixed_path = f"/{mode}{path}"
                         getattr(self.router, method_name)(prefixed_path, *args, **kwargs)(func)
-                        mode_params_path = f"/{mode}/context/{{context}}{path}" # /agent/context/foobar/api
+                        # /agent/context/foobar/api
+                        mode_params_path = f"/{mode}/context/{{context}}{path}"
                         getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
-                        widget_path = f"/{mode}/widget{path}" # /agent/widget/foobar/api
-                        getattr(self.router, method_name)(widget_path, *args, **kwargs)(func)
+                        # /agent/context/<ctx>/m/<variant>/api
+                        mode_params_variant_path = f"/{mode}/m/{{variant}}{path}"
+                        getattr(self.router, method_name)(mode_params_variant_path, *args, **kwargs)(func)
                 return func
             return decorator
         return method
