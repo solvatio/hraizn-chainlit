@@ -65,6 +65,7 @@ def get_mode(root_path: str, path: str, modes: list[str] = None)  -> Mode:
     in_mode_params = False
     mode_params = None
     default_mode = modes[0] if modes else None
+    widget = False
     if root_path:
         path = path.removeprefix(root_path)
     for segment in path.split("/"):
@@ -74,12 +75,17 @@ def get_mode(root_path: str, path: str, modes: list[str] = None)  -> Mode:
                 break
             elif mode and segment == "context":
                 in_mode_params = True
+            elif mode and segment == "widget":
+                widget = True
             elif mode:
                 break
             if segment in modes:
                 mode = segment
     if not mode_params and mode:
-        return Mode(name = mode, params = None, path = mode, default_name=default_mode)
+        path = mode
+        if widget:
+            path = f"{mode}/widget"
+        return Mode(name = mode, params = None, path = path, default_name=default_mode)
     if mode_params and mode:
         return Mode(name = mode, params = mode_params, path = f"{mode}/context/{mode_params}", default_name=default_mode)
     return Mode(name = None, params = None, path = None, default_name=default_mode)
@@ -127,6 +133,8 @@ class ModeRouterWrapper:
                         getattr(self.router, method_name)(prefixed_path, *args, **kwargs)(func)
                         mode_params_path = f"/{mode}/context/{{context}}{path}" # /agent/context/foobar/api
                         getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
+                        widget_path = f"/{mode}/widget{path}" # /agent/widget/foobar/api
+                        getattr(self.router, method_name)(widget_path, *args, **kwargs)(func)
                 return func
             return decorator
         return method
