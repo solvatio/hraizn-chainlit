@@ -161,7 +161,7 @@ class ModeRouterWrapper:
                         # /agent/context/foobar/api
                         mode_params_path = f"/{mode}/context/{{context}}{path}"
                         getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
-                        # /agent/context/<ctx>/m/<variant>/api
+                        # /agent/m/<variant>/api
                         mode_params_variant_path = f"/{mode}/m/{{variant}}{path}"
                         getattr(self.router, method_name)(mode_params_variant_path, *args, **kwargs)(func)
                 return func
