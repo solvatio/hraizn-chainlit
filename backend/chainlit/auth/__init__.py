@@ -27,12 +27,22 @@ def ensure_jwt_secret():
         )
 
 
-def is_oauth_enabled():
+def is_oauth_enabled(mode: str = None):
+    if mode:
+        return config.code.oauth_callback and len(get_configured_oauth_providers(mode)) > 0 and is_azure_oauth(mode)
     return config.code.oauth_callback and len(get_configured_oauth_providers()) > 0
 
+def is_password_auth(mode: str):
+    return mode in config.project.password_auth_callback_modes
+
+def is_azure_oauth(mode: str):
+    return mode in config.project.azure_oauth_callback_modes
+
+def is_private(mode: str):
+    return mode in config.project.private_modes
 
 def require_login(mode: str = None):
-    if mode in config.project.password_auth_callback_modes:
+    if is_private(mode):
         return True
     if config.project.modes:
         return False
@@ -40,18 +50,17 @@ def require_login(mode: str = None):
         bool(os.environ.get("CHAINLIT_CUSTOM_AUTH"))
         or config.code.password_auth_callback is not None
         or config.code.header_auth_callback is not None
-        or is_oauth_enabled()
+        or is_oauth_enabled(None)
     )
+
 
 
 def get_configuration(mode: str):
     return {
         "requireLogin": require_login(mode),
-        "passwordAuth": config.code.password_auth_callback is not None,
+        "passwordAuth": config.code.password_auth_callback is not None and is_password_auth(mode),
         "headerAuth": config.code.header_auth_callback is not None,
-        "oauthProviders": (
-            get_configured_oauth_providers() if is_oauth_enabled() else []
-        ),
+        "oauthProviders": get_configured_oauth_providers(mode) if is_oauth_enabled(mode) else [],
         "default_theme": config.ui.default_theme,
         "ui": {
             "login_page_image": config.ui.login_page_image,
