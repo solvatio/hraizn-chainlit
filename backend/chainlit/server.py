@@ -441,17 +441,21 @@ def get_user_facing_url(url: URL):
     Return the user facing URL for a given URL.
     Handles deployment with proxies (like cloud run).
     """
+    print("URL from argument: " + url.__str__())
     chainlit_url = os.environ.get("CHAINLIT_URL")
+    print("CHAINLIT_URL: " + str(chainlit_url))
 
     # No config, we keep the URL as is
     if not chainlit_url:
         url = url.replace(query="", fragment="")
+        print("url after replace:" + url.__str__())
         return url.__str__()
 
     config_url = URL(chainlit_url).replace(
         query="",
         fragment="",
     )
+    print("config url: " + config_url.__str__())
     # Remove trailing slash from config URL
     if config_url.path.endswith("/"):
         config_url = config_url.replace(path=config_url.path[:-1])
