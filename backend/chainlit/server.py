@@ -475,7 +475,7 @@ def _get_response_dict(access_token: str) -> dict:
     return {"success": True}
 
 
-def _get_auth_response(access_token: str, redirect_to_callback: bool) -> Response:
+def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Optional[str]) -> Response:
     """Get the redirect params for the OAuth callback."""
 
     response_dict = _get_response_dict(access_token)
@@ -483,8 +483,9 @@ def _get_auth_response(access_token: str, redirect_to_callback: bool) -> Respons
     if redirect_to_callback:
         root_path = os.environ.get("CHAINLIT_ROOT_PATH", "")
         root_path = "" if root_path == "/" else root_path
+        mode_path = f"/{mode}" if mode else ""
         redirect_url = (
-            f"{root_path}/login/callback?{urllib.parse.urlencode(response_dict)}"
+            f"{root_path}{mode_path}/login/callback?{urllib.parse.urlencode(response_dict)}"
         )
 
         return RedirectResponse(
@@ -535,7 +536,7 @@ async def _authenticate_user(
 
     access_token = create_jwt(user)
 
-    response = _get_auth_response(access_token, redirect_to_callback)
+    response = _get_auth_response(access_token, redirect_to_callback, mode)
 
     set_auth_cookie(request, response, access_token)
 
