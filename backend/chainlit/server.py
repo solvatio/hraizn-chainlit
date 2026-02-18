@@ -40,7 +40,8 @@ from chainlit.auth.cookie import (
     clear_oauth_state_cookie,
     set_auth_cookie,
     set_oauth_state_cookie,
-    validate_oauth_state_cookie,
+    validate_oauth_state_cookie, clear_url_state_cookie, get_url_state_from_cookie,
+    set_url_state_cookie,
 )
 from chainlit.config import (
     APP_ROOT,
@@ -475,7 +476,7 @@ def _get_response_dict(access_token: str) -> dict:
     return {"success": True}
 
 
-def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Optional[str]) -> Response:
+def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Optional[str], request: Request) -> Response:
     """Get the redirect params for the OAuth callback."""
 
     response_dict = _get_response_dict(access_token)
@@ -484,13 +485,11 @@ def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Opti
         root_path = os.environ.get("CHAINLIT_ROOT_PATH", "")
         root_path = "" if root_path == "/" else root_path
         mode_path = f"/{mode}" if mode else ""
-        redirect_url = (
-            f"{root_path}{mode_path}/login/callback?{urllib.parse.urlencode(response_dict)}"
-        )
+        url_state = get_url_state_from_cookie(request)
 
         return RedirectResponse(
             # FIXME: redirect to the right frontend base url to improve the dev environment
-            url=redirect_url,
+            url=url_state,
             status_code=302,
         )
 
@@ -536,7 +535,7 @@ async def _authenticate_user(
 
     access_token = create_jwt(user)
 
-    response = _get_auth_response(access_token, redirect_to_callback, mode)
+    response = _get_auth_response(access_token, redirect_to_callback, mode, request)
 
     set_auth_cookie(request, response, access_token)
 
@@ -639,10 +638,17 @@ async def oauth_login(provider_id: str, request: Request):
 
     random = random_secret(32)
 
+    # the initial url path called before oauth flow started
+    url_state = request.url.path.split("/auth/oauth/", 1)[0]
+
+    # the cleaned callback url that we pass to the IdP, we remove /context/<something>/
+    cleaned_url = re.sub(r"/context/[^/]+(?=/auth/oauth/)", "", get_user_facing_url(request.url))
+
+
     params = urllib.parse.urlencode(
         {
             "client_id": provider.client_id,
-            "redirect_uri": f"{get_user_facing_url(request.url)}/callback",
+            "redirect_uri": f"{cleaned_url}/callback",
             "state": random,
             **provider.authorize_params,
         }
@@ -652,6 +658,9 @@ async def oauth_login(provider_id: str, request: Request):
     )
 
     set_oauth_state_cookie(response, random)
+
+    # store the initial url - we need it for the final redirect after oauth flow completed
+    set_url_state_cookie(response, url_state)
 
     return response
 
@@ -714,6 +723,7 @@ async def oauth_callback(
     response = await _authenticate_user(request, user, redirect_to_callback=True)
 
     clear_oauth_state_cookie(response)
+    clear_url_state_cookie(response)
 
     return response
 

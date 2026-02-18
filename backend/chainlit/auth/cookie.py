@@ -30,6 +30,7 @@ else:
 _state_cookie_lifetime = 3 * 60  # 3m
 _auth_cookie_name = os.environ.get("CHAINLIT_AUTH_COOKIE_NAME", "access_token")
 _state_cookie_name = "oauth_state"
+_url_state_cookie_name = "url_state"
 
 
 class OAuth2PasswordBearerWithCookie(SecurityBase):
@@ -171,6 +172,15 @@ def clear_auth_cookie(request: Request, response: Response):
             key=k, path=_cookie_path, secure=_cookie_secure, samesite=_cookie_samesite
         )
 
+def set_url_state_cookie(response: Response, url_state: str):
+    response.set_cookie(
+        _url_state_cookie_name,
+        url_state,
+        httponly=True,
+        samesite=_cookie_samesite,
+        secure=_cookie_secure,
+        max_age=_state_cookie_lifetime,
+    )
 
 def set_oauth_state_cookie(response: Response, token: str):
     response.set_cookie(
@@ -191,7 +201,15 @@ def validate_oauth_state_cookie(request: Request, state: str):
     if oauth_state != state:
         raise Exception("oauth state does not correspond")
 
+def get_url_state_from_cookie(request: Request):
+    return request.cookies.get(_url_state_cookie_name)
+
 
 def clear_oauth_state_cookie(response: Response):
     """Oauth complete, delete state token."""
     response.delete_cookie(_state_cookie_name)  # Do we set path here?
+
+
+def clear_url_state_cookie(response: Response):
+    """Oauth complete, delete url state."""
+    response.delete_cookie(_url_state_cookie_name)
