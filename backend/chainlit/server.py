@@ -40,7 +40,8 @@ from chainlit.auth.cookie import (
     clear_oauth_state_cookie,
     set_auth_cookie,
     set_oauth_state_cookie,
-    validate_oauth_state_cookie,
+    validate_oauth_state_cookie, clear_url_state_cookie, get_url_state_from_cookie,
+    set_url_state_cookie,
 )
 from chainlit.config import (
     APP_ROOT,
@@ -78,7 +79,7 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
-from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect
+from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -461,7 +462,8 @@ def get_user_facing_url(url: URL):
 
 @router.get("/auth/config")
 async def auth(request: Request):
-    return get_configuration()
+    mode_name = get_mode_from_request(request)
+    return get_configuration(mode=mode_name)
 
 
 def _get_response_dict(access_token: str) -> dict:
@@ -470,7 +472,7 @@ def _get_response_dict(access_token: str) -> dict:
     return {"success": True}
 
 
-def _get_auth_response(access_token: str, redirect_to_callback: bool) -> Response:
+def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Optional[str], request: Request) -> Response:
     """Get the redirect params for the OAuth callback."""
 
     response_dict = _get_response_dict(access_token)
@@ -478,13 +480,12 @@ def _get_auth_response(access_token: str, redirect_to_callback: bool) -> Respons
     if redirect_to_callback:
         root_path = os.environ.get("CHAINLIT_ROOT_PATH", "")
         root_path = "" if root_path == "/" else root_path
-        redirect_url = (
-            f"{root_path}/login/callback?{urllib.parse.urlencode(response_dict)}"
-        )
+        mode_path = f"/{mode}" if mode else ""
+        url_state = get_url_state_from_cookie(request)
 
         return RedirectResponse(
             # FIXME: redirect to the right frontend base url to improve the dev environment
-            url=redirect_url,
+            url=url_state,
             status_code=302,
         )
 
@@ -513,6 +514,12 @@ async def _authenticate_user(
             detail="credentialssignin",
         )
 
+    mode: str|None = chainlit.modes.get_mode_from_request(request)
+    if user.metadata.get("mode", None) != mode:
+        raise HTTPException(
+            status_code=401, detail="Invalid authentication token"
+        )
+
     # If a data layer is defined, attempt to persist user.
     if data_layer := get_data_layer():
         try:
@@ -524,7 +531,7 @@ async def _authenticate_user(
 
     access_token = create_jwt(user)
 
-    response = _get_auth_response(access_token, redirect_to_callback)
+    response = _get_auth_response(access_token, redirect_to_callback, mode, request)
 
     set_auth_cookie(request, response, access_token)
 
@@ -545,8 +552,9 @@ async def login(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No auth_callback defined"
         )
 
+    mode_name = get_mode_from_request(request)
     user = await config.code.password_auth_callback(
-        form_data.username, form_data.password
+        form_data.username, form_data.password, mode_name
     )
 
     return await _authenticate_user(request, user)
@@ -615,7 +623,9 @@ async def oauth_login(provider_id: str, request: Request):
             detail="No oauth_callback defined",
         )
 
-    provider = get_oauth_provider(provider_id)
+    mode_name = get_mode_from_request(request)
+
+    provider = get_oauth_provider(provider_id, mode_name)
     if not provider:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -624,10 +634,17 @@ async def oauth_login(provider_id: str, request: Request):
 
     random = random_secret(32)
 
+    # the initial url path called before oauth flow started
+    url_state = request.url.path.split("/auth/oauth/", 1)[0]
+
+    # the cleaned callback url that we pass to the IdP, we remove /context/<something>/
+    cleaned_url = re.sub(r"/context/[^/]+(?=/auth/oauth/)", "", get_user_facing_url(request.url))
+
+
     params = urllib.parse.urlencode(
         {
             "client_id": provider.client_id,
-            "redirect_uri": f"{get_user_facing_url(request.url)}/callback",
+            "redirect_uri": f"{cleaned_url}/callback",
             "state": random,
             **provider.authorize_params,
         }
@@ -637,6 +654,9 @@ async def oauth_login(provider_id: str, request: Request):
     )
 
     set_oauth_state_cookie(response, random)
+
+    # store the initial url - we need it for the final redirect after oauth flow completed
+    set_url_state_cookie(response, url_state)
 
     return response
 
@@ -657,7 +677,9 @@ async def oauth_callback(
             detail="No oauth_callback defined",
         )
 
-    provider = get_oauth_provider(provider_id)
+    mode_name = get_mode_from_request(request)
+
+    provider = get_oauth_provider(provider_id, mode_name)
     if not provider:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -688,13 +710,16 @@ async def oauth_callback(
 
     (raw_user_data, default_user) = await provider.get_user_info(token)
 
+    mode_name = get_mode_from_request(request)
+
     user = await config.code.oauth_callback(
-        provider_id, token, raw_user_data, default_user
+        provider_id, token, raw_user_data, default_user, mode_name
     )
 
     response = await _authenticate_user(request, user, redirect_to_callback=True)
 
     clear_oauth_state_cookie(response)
+    clear_url_state_cookie(response)
 
     return response
 
