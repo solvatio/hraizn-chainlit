@@ -7,6 +7,8 @@ import { useTheme } from '@/components/ThemeProvider';
 
 import { useQuery } from 'hooks/query';
 
+import { ClientError } from '@chainlit/react-client';
+
 import { ChainlitContext, useAuth } from 'client-types/*';
 
 export const LoginError = new Error(
@@ -42,7 +44,11 @@ export default function Login() {
         navigate(redirectURL);
       }
     } catch (error: any) {
-      setError(error.message);
+        if (error instanceof ClientError && error.detail) {
+          setError(error.detail);
+        } else if (error instanceof Error) {
+          setError(error.message);
+        }
     }
   };
 
