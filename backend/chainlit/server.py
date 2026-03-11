@@ -480,7 +480,6 @@ def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Opti
     if redirect_to_callback:
         root_path = os.environ.get("CHAINLIT_ROOT_PATH", "")
         root_path = "" if root_path == "/" else root_path
-        mode_path = f"/{mode}" if mode else ""
         url_state = get_url_state_from_cookie(request)
 
         return RedirectResponse(
@@ -511,7 +510,7 @@ async def _authenticate_user(
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="credentialssignin",
+            detail="credentialsSignin",
         )
 
     mode: str|None = chainlit.modes.get_mode_from_request(request)
