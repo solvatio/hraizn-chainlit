@@ -12,10 +12,19 @@ import {
 
 export default function AppWrapper() {
   const [translationLoaded, setTranslationLoaded] = useState(false);
-  const { isAuthenticated, isReady } = useAuth();
+  const { data: authConfig, isAuthenticated, isReady } = useAuth();
   const { language: languageInUse } = useConfig();
   const { i18n } = useTranslation();
   const { windowMessage } = useChatInteract();
+  const basename = getRouterBasename();
+  const loginPath = basename + '/login';
+  const anonymousLoginPath = basename + '/login-anon';
+  const loginCallbackPath = basename + '/login/callback';
+  const requireLogin = authConfig?.requireLogin;
+  const anonymousAuth = authConfig?.anonymousAuth;
+  const isRootPath =
+    window.location.pathname === basename ||
+    window.location.pathname === basename + '/';
 
   function handleChangeLanguage(languageBundle: any): void {
     i18n.addResourceBundle(languageInUse, 'translation', languageBundle);
@@ -45,10 +54,12 @@ export default function AppWrapper() {
   if (
     isReady &&
     !isAuthenticated &&
-    window.location.pathname !== getRouterBasename() + '/login' &&
-    window.location.pathname !== getRouterBasename() + '/login/callback'
+    window.location.pathname !== loginPath &&
+    window.location.pathname !== anonymousLoginPath &&
+    window.location.pathname !== loginCallbackPath
   ) {
-    window.location.href = getRouterBasename() + '/login';
+    window.location.href =
+      requireLogin && anonymousAuth && isRootPath ? anonymousLoginPath : loginPath;
   }
   return <App />;
 }

@@ -6,6 +6,8 @@ import Element from 'pages/Element';
 import Env from 'pages/Env';
 import Home from 'pages/Home';
 import Login from 'pages/Login';
+import LoginAnon from 'pages/LoginAnon';
+import Logout from 'pages/Logout';
 import Thread from 'pages/Thread';
 
 export const router = createBrowserRouter(
@@ -29,6 +31,14 @@ export const router = createBrowserRouter(
     {
       path: '/login',
       element: <Login />
+    },
+    {
+      path: '/login-anon',
+      element: <LoginAnon />
+    },
+    {
+      path: '/logout',
+      element: <Logout />
     },
     {
       path: '/login/callback',

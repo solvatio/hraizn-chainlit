@@ -38,11 +38,8 @@ def is_password_auth(mode: str):
 def is_azure_oauth(mode: str):
     return mode in config.project.azure_oauth_callback_modes
 
-def is_private(mode: str):
-    return mode in config.project.private_modes
-
 def require_login(mode: str = None):
-    if is_private(mode):
+    if mode in config.project.login_modes:
         return True
     if config.project.modes:
         return False
@@ -60,6 +57,7 @@ def get_configuration(mode: str):
         "requireLogin": require_login(mode),
         "passwordAuth": config.code.password_auth_callback is not None and is_password_auth(mode),
         "headerAuth": config.code.header_auth_callback is not None,
+        "anonymousAuth": mode in config.project.anonymous_auth_callback_modes,
         "oauthProviders": get_configured_oauth_providers(mode) if is_oauth_enabled(mode) else [],
         "default_theme": config.ui.default_theme,
         "ui": {

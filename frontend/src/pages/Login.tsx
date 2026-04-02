@@ -78,9 +78,14 @@ export default function Login() {
     }
     if (!config.requireLogin) {
       navigate('/');
+      return;
     }
     if (config.headerAuth) {
       handleHeaderAuth();
+    }
+    if (config.anonymousAuth && user?.identifier === 'anon') {
+      navigate('/logout');
+      return;
     }
     if (user) {
       navigate('/');
