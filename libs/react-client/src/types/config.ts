@@ -21,6 +21,7 @@ export interface IAudioConfig {
 
 export interface IAuthConfig {
   requireLogin: boolean;
+  anonymousAuth?: boolean;
   passwordAuth: boolean;
   headerAuth: boolean;
   oauthProviders: string[];

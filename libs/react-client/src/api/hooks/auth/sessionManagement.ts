@@ -9,7 +9,7 @@ export const useSessionManagement = () => {
 
   const logout = async (reload = false): Promise<void> => {
     await apiClient.logout();
-    setUser(undefined);
+    setUser(null);
     setThreadHistory(undefined);
 
     if (reload) {
