@@ -160,68 +160,70 @@ export default function MessageComposer({
 return (
   <div id="message-composer" className="w-full">
     {/* WRAPPER: Input + Buttons im selben Pill-Container */}
-    <div className="bg-accent dark:bg-card rounded-3xl px-4 flex items-start gap-2">
+    <div className="bg-accent dark:bg-card rounded-3xl px-4 flex flex-col gap-2">
+      {/* Attachments oben */}
       {attachments.length > 0 && (
-        <div className="mr-2 pt-1">
+        <div className="pt-2">
           <Attachments />
         </div>
       )}
 
-      {/* INPUT: wächst bei Shift+Return */}
-      <div className="flex-1 py-1">
-        <Input
-          ref={inputRef}
-          id="chat-input"
-          autoFocus={!isMobile}
-          selectedCommand={selectedCommand}
-          setSelectedCommand={setSelectedCommand}
-          onChange={setValue}
-          onPaste={onPaste}
-          onEnter={submit}
-          placeholder={t("chat.input.placeholder")}
-          className="min-h-10 py-2 leading-normal"
-        />
-      </div>
+      {/* Input + Buttons in einer Reihe */}
+      <div className="flex items-start gap-2">
+        <div className="flex-1 py-1">
+          <Input
+            ref={inputRef}
+            id="chat-input"
+            autoFocus={!isMobile}
+            selectedCommand={selectedCommand}
+            setSelectedCommand={setSelectedCommand}
+            onChange={setValue}
+            onPaste={onPaste}
+            onEnter={submit}
+            placeholder={t("chat.input.placeholder")}
+            className="min-h-10 py-2 leading-normal"
+          />
+        </div>
 
-      {/* BUTTONS: bleiben auf 1-Zeilen-Höhe zentriert, wandern nicht mit */}
-      <div className="sticky top-0 h-12 flex items-center gap-1">
-        <VoiceButton disabled={disabled} />
-        <UploadButton
-          disabled={disabled}
-          fileSpec={fileSpec}
-          onFileUploadError={onFileUploadError}
-          onFileUpload={onFileUpload}
-        />
-        {chatSettingsInputs.length > 0 && (
-          <Button
-            id="chat-settings-open-modal"
+        <div className="sticky top-0 h-12 flex items-center gap-1">
+          <VoiceButton disabled={disabled} />
+          <UploadButton
             disabled={disabled}
-            onClick={() => setChatSettingsOpen(true)}
-            className="hover:bg-muted rounded-full"
-            variant="ghost"
-            size="icon"
-          >
-            <Settings className="!size-6" />
-          </Button>
-        )}
-        <McpButton disabled={disabled} />
-        <CommandButton
-          disabled={disabled}
-          selectedCommandId={selectedCommand?.id}
-          onCommandSelect={setSelectedCommand}
-        />
-        <CommandButtons
-          disabled={disabled}
-          selectedCommandId={selectedCommand?.id}
-          onCommandSelect={setSelectedCommand}
-        />
-        <SubmitButton
-          onSubmit={submit}
-          disabled={
-            disabled ||
-            (!value.trim() && !selectedCommand && attachments.length === 0)
-          }
-        />
+            fileSpec={fileSpec}
+            onFileUploadError={onFileUploadError}
+            onFileUpload={onFileUpload}
+          />
+          {chatSettingsInputs.length > 0 && (
+            <Button
+              id="chat-settings-open-modal"
+              disabled={disabled}
+              onClick={() => setChatSettingsOpen(true)}
+              className="hover:bg-muted rounded-full"
+              variant="ghost"
+              size="icon"
+            >
+              <Settings className="!size-6" />
+            </Button>
+          )}
+          <McpButton disabled={disabled} />
+          <CommandButton
+            disabled={disabled}
+            selectedCommandId={selectedCommand?.id}
+            onCommandSelect={setSelectedCommand}
+          />
+          <CommandButtons
+            disabled={disabled}
+            selectedCommandId={selectedCommand?.id}
+            onCommandSelect={setSelectedCommand}
+          />
+          <SubmitButton
+            onSubmit={submit}
+            disabled={
+              disabled ||
+              (!value.trim() && !selectedCommand && attachments.length === 0)
+            }
+          />
+        </div>
       </div>
     </div>
   </div>
