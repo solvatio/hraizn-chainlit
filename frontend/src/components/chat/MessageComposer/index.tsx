@@ -29,6 +29,7 @@ import Input, { InputMethods } from './Input';
 import McpButton from './Mcp';
 import SubmitButton from './SubmitButton';
 import UploadButton from './UploadButton';
+import WebcamButton, { WebcamButtonMethods } from './WebcamButton';
 import VoiceButton from './VoiceButton';
 
 interface Props {
@@ -45,7 +46,10 @@ export default function MessageComposer({
   autoScrollRef
 }: Props) {
   const inputRef = useRef<InputMethods>(null);
+  const webcamRef = useRef<WebcamButtonMethods>(null);
   const [value, setValue] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWebcamBusy, setIsWebcamBusy] = useState(false);
   const [selectedCommand, setSelectedCommand] = useRecoilState(
     persistentCommandState
   );
@@ -57,7 +61,11 @@ export default function MessageComposer({
   const { sendMessage, replyMessage } = useChatInteract();
   const { askUser, chatSettingsInputs, disabled: _disabled } = useChatData();
 
-  const disabled = _disabled || !!attachments.find((a) => !a.uploaded);
+  const disabled =
+    _disabled ||
+    isSubmitting ||
+    isWebcamBusy ||
+    !!attachments.find((a) => !a.uploaded);
 
   const isMobile = useIsMobile();
 
@@ -129,7 +137,7 @@ export default function MessageComposer({
     [user, replyMessage, autoScrollRef]
   );
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     if (
       disabled ||
       (value.trim() === '' && attachments.length === 0 && !selectedCommand)
@@ -137,15 +145,28 @@ export default function MessageComposer({
       return;
     }
 
-    if (askUser) {
-      onReply(value);
-    } else {
-      onSubmit(value, attachments, selectedCommand?.id);
-    }
+    setIsSubmitting(true);
 
-    setAttachments([]);
-    setValue(''); // Clear the value state
-    inputRef.current?.reset();
+    try {
+      if (askUser) {
+        onReply(value);
+      } else {
+        const webcamAttachment = await webcamRef.current?.captureAndUpload();
+        const nextAttachments = webcamAttachment
+          ? attachments.concat(webcamAttachment)
+          : attachments;
+
+        await onSubmit(value, nextAttachments, selectedCommand?.id);
+      }
+
+      setAttachments([]);
+      setValue('');
+      inputRef.current?.reset();
+    } catch {
+      return;
+    } finally {
+      setIsSubmitting(false);
+    }
   }, [
     value,
     disabled,
@@ -186,6 +207,12 @@ return (
         </div>
 
         <div className="sticky top-0 h-12 flex items-center gap-1">
+          <WebcamButton
+            ref={webcamRef}
+            disabled={disabled}
+            onError={onFileUploadError}
+            onBusyChange={setIsWebcamBusy}
+          />
           <VoiceButton disabled={disabled} />
           <UploadButton
             disabled={disabled}
