@@ -8,6 +8,7 @@ export interface IAttachment {
   name: string;
   size: number;
   type: string;
+  previewUrl?: string;
   uploadProgress?: number;
   uploaded?: boolean;
   cancel?: () => void;

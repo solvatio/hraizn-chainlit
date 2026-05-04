@@ -29,6 +29,26 @@ import MessagesContainer from './MessagesContainer';
 import ScrollContainer from './ScrollContainer';
 import WelcomeScreen from './WelcomeScreen';
 
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('Unable to generate image preview.'));
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error('Unable to generate image preview.'));
+    };
+
+    reader.readAsDataURL(file);
+  });
+
 const Chat = () => {
   const { user } = useAuth();
   const { config } = useConfig();
@@ -152,6 +172,30 @@ const Chat = () => {
         };
       });
       setAttachments((prev) => prev.concat(attachements));
+
+      payloads.forEach((file, index) => {
+        if (!file.type.startsWith('image/')) {
+          return;
+        }
+
+        void readFileAsDataUrl(file)
+          .then((previewUrl) => {
+            const attachmentId = attachements[index]?.id;
+
+            if (!attachmentId) {
+              return;
+            }
+
+            setAttachments((prev) =>
+              prev.map((attachment) =>
+                attachment.id === attachmentId
+                  ? { ...attachment, previewUrl }
+                  : attachment
+              )
+            );
+          })
+          .catch(() => undefined);
+      });
     },
     [uploadFile]
   );
