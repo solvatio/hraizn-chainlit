@@ -27,10 +27,11 @@ interface Props {
   disabled?: boolean;
   onError: (error: string) => void;
   onBusyChange?: (busy: boolean) => void;
+  onEnabledChange?: (enabled: boolean) => void;
 }
 
 const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
-  ({ disabled, onError, onBusyChange }, ref) => {
+  ({ disabled, onError, onBusyChange, onEnabledChange }, ref) => {
     const { config } = useConfig();
     const { uploadFile } = useChatInteract();
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -46,6 +47,10 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
     useEffect(() => {
       onBusyChange?.(isBusy);
     }, [isBusy, onBusyChange]);
+
+    useEffect(() => {
+      onEnabledChange?.(isEnabled);
+    }, [isEnabled, onEnabledChange]);
 
     const stopStream = useCallback(() => {
       streamRef.current?.getTracks().forEach((track) => track.stop());

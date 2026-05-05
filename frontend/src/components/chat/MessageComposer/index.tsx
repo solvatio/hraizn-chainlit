@@ -55,6 +55,7 @@ export default function MessageComposer({
   const [value, setValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWebcamBusy, setIsWebcamBusy] = useState(false);
+  const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
   const [selectedCommand, setSelectedCommand] = useRecoilState(
     persistentCommandState
   );
@@ -145,7 +146,12 @@ export default function MessageComposer({
   const submit = useCallback(async () => {
     if (
       disabled ||
-      (value.trim() === '' && attachments.length === 0 && !selectedCommand)
+      (
+        value.trim() === '' &&
+        attachments.length === 0 &&
+        !selectedCommand &&
+        !isWebcamEnabled
+      )
     ) {
       return;
     }
@@ -178,6 +184,7 @@ export default function MessageComposer({
     askUser,
     attachments,
     selectedCommand,
+    isWebcamEnabled,
     setAttachments,
     onSubmit,
     onReply
@@ -217,6 +224,7 @@ return (
             disabled={disabled}
             onError={onFileUploadError}
             onBusyChange={setIsWebcamBusy}
+            onEnabledChange={setIsWebcamEnabled}
           />
           <VoiceButton disabled={disabled} />
           <UploadButton
@@ -252,7 +260,12 @@ return (
             onSubmit={submit}
             disabled={
               disabled ||
-              (!value.trim() && !selectedCommand && attachments.length === 0)
+              (
+                !value.trim() &&
+                !selectedCommand &&
+                attachments.length === 0 &&
+                !isWebcamEnabled
+              )
             }
           />
         </div>
