@@ -3,10 +3,11 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState
 } from 'react';
-import { Camera, CameraOff, LoaderCircle } from 'lucide-react';
+import { Camera, CameraOff, LoaderCircle, RotateCcw, X } from 'lucide-react';
 
 import { useChatInteract, useConfig } from '@chainlit/react-client';
 
@@ -30,16 +31,38 @@ interface Props {
   onEnabledChange?: (enabled: boolean) => void;
 }
 
+interface PreviewPosition {
+  x: number;
+  y: number;
+}
+
+const DEFAULT_PREVIEW_WIDTH = 140;
+const DEFAULT_PREVIEW_HEIGHT = 105;
+const PREVIEW_MARGIN = 16;
+
+let persistedStream: MediaStream | null = null;
+let persistedPreviewPosition: PreviewPosition | null = null;
+
 const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
   ({ disabled, onError, onBusyChange, onEnabledChange }, ref) => {
     const { config } = useConfig();
     const { uploadFile } = useChatInteract();
     const videoRef = useRef<HTMLVideoElement>(null);
+    const previewRef = useRef<HTMLDivElement>(null);
+    const buttonAnchorRef = useRef<HTMLDivElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const dragStateRef = useRef<{
+      pointerId: number;
+      offsetX: number;
+      offsetY: number;
+    } | null>(null);
 
-    const [isEnabled, setIsEnabled] = useState(false);
+    const [isEnabled, setIsEnabled] = useState(!!persistedStream);
     const [isRequesting, setIsRequesting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [previewPosition, setPreviewPosition] = useState<PreviewPosition | null>(
+      persistedPreviewPosition
+    );
 
     const isFeatureEnabled = !!config?.features?.webcam?.enabled;
     const isBusy = isRequesting || isUploading;
@@ -52,17 +75,94 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       onEnabledChange?.(isEnabled);
     }, [isEnabled, onEnabledChange]);
 
+    const clampPosition = useCallback(
+      (position: PreviewPosition, width: number, height: number) => {
+        const maxX = Math.max(PREVIEW_MARGIN, window.innerWidth - width - PREVIEW_MARGIN);
+        const maxY = Math.max(PREVIEW_MARGIN, window.innerHeight - height - PREVIEW_MARGIN);
+
+        return {
+          x: Math.min(Math.max(position.x, PREVIEW_MARGIN), maxX),
+          y: Math.min(Math.max(position.y, PREVIEW_MARGIN), maxY)
+        };
+      },
+      []
+    );
+
+    const getPreviewSize = useCallback(() => {
+      const rect = previewRef.current?.getBoundingClientRect();
+
+      return {
+        width: rect?.width ?? DEFAULT_PREVIEW_WIDTH,
+        height: rect?.height ?? DEFAULT_PREVIEW_HEIGHT
+      };
+    }, []);
+
+    const getDefaultPreviewPosition = useCallback(() => {
+      const { width, height } = getPreviewSize();
+      const anchorRect = buttonAnchorRef.current?.getBoundingClientRect();
+      const composerRect = document
+        .getElementById('message-composer')
+        ?.getBoundingClientRect();
+      const fallbackX = window.innerWidth - width - PREVIEW_MARGIN;
+      const fallbackY = window.innerHeight - height - 96;
+
+      return clampPosition(
+        {
+          x: composerRect
+            ? composerRect.right - width
+            : anchorRect
+              ? anchorRect.right - width
+              : fallbackX,
+          y: anchorRect ? anchorRect.top - height - 12 : fallbackY
+        },
+        width,
+        height
+      );
+    }, [clampPosition, getPreviewSize]);
+
+    const positionPreviewNearButton = useCallback(() => {
+      if (persistedPreviewPosition) {
+        setPreviewPosition(persistedPreviewPosition);
+        return;
+      }
+
+      const nextPosition = getDefaultPreviewPosition();
+
+      persistedPreviewPosition = nextPosition;
+      setPreviewPosition(nextPosition);
+    }, [getDefaultPreviewPosition]);
+
+    const resetPreviewPosition = useCallback(() => {
+      const nextPosition = getDefaultPreviewPosition();
+      persistedPreviewPosition = nextPosition;
+      setPreviewPosition(nextPosition);
+    }, [getDefaultPreviewPosition]);
+
+    const syncVideoPreview = useCallback(async () => {
+      const video = videoRef.current;
+      const stream = streamRef.current;
+
+      if (!video || !stream) {
+        return;
+      }
+
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+
+      await video.play().catch(() => undefined);
+    }, []);
+
     const stopStream = useCallback(() => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      persistedStream = null;
       setIsEnabled(false);
 
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
     }, []);
-
-    useEffect(() => stopStream, [stopStream]);
 
     const startStream = useCallback(async () => {
       if (
@@ -81,12 +181,9 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
         });
 
         streamRef.current = stream;
+        persistedStream = stream;
         setIsEnabled(true);
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => undefined);
-        }
+        await syncVideoPreview();
       } catch (error) {
         onError(
           error instanceof Error
@@ -96,7 +193,67 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       } finally {
         setIsRequesting(false);
       }
-    }, [onError]);
+    }, [onError, syncVideoPreview]);
+
+    useEffect(() => {
+      if (persistedStream && !streamRef.current) {
+        streamRef.current = persistedStream;
+        setIsEnabled(true);
+      }
+    }, []);
+
+    useEffect(() => {
+      if (!isEnabled) {
+        return;
+      }
+
+      if (!previewPosition) {
+        positionPreviewNearButton();
+      }
+
+      void syncVideoPreview();
+    }, [isEnabled, positionPreviewNearButton, previewPosition, syncVideoPreview]);
+
+    useLayoutEffect(() => {
+      if (!isEnabled || !previewPosition) {
+        return;
+      }
+
+      const { width, height } = getPreviewSize();
+      const nextPosition = clampPosition(previewPosition, width, height);
+
+      if (
+        nextPosition.x !== previewPosition.x ||
+        nextPosition.y !== previewPosition.y
+      ) {
+        persistedPreviewPosition = nextPosition;
+        setPreviewPosition(nextPosition);
+      }
+    }, [clampPosition, getPreviewSize, isEnabled, previewPosition]);
+
+    useEffect(() => {
+      const handleWindowResize = () => {
+        if (!persistedPreviewPosition) {
+          return;
+        }
+
+        const { width, height } = getPreviewSize();
+        const nextPosition = clampPosition(
+          persistedPreviewPosition,
+          width,
+          height
+        );
+
+        persistedPreviewPosition = nextPosition;
+        setPreviewPosition(nextPosition);
+      };
+
+      window.addEventListener('resize', handleWindowResize);
+
+      return () => {
+        window.removeEventListener('resize', handleWindowResize);
+      };
+    }, [clampPosition, getPreviewSize]);
 
     const toggleStream = useCallback(() => {
       if (streamRef.current) {
@@ -106,6 +263,59 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
 
       void startStream();
     }, [startStream, stopStream]);
+
+    const handleDragStart = useCallback(
+      (event: React.PointerEvent<HTMLDivElement>) => {
+        const rect = previewRef.current?.getBoundingClientRect();
+
+        if (!rect) {
+          return;
+        }
+
+        dragStateRef.current = {
+          pointerId: event.pointerId,
+          offsetX: event.clientX - rect.left,
+          offsetY: event.clientY - rect.top
+        };
+
+        event.currentTarget.setPointerCapture(event.pointerId);
+      },
+      []
+    );
+
+    const handleDragMove = useCallback(
+      (event: React.PointerEvent<HTMLDivElement>) => {
+        const dragState = dragStateRef.current;
+
+        if (!dragState || dragState.pointerId !== event.pointerId) {
+          return;
+        }
+
+        const { width, height } = getPreviewSize();
+        const nextPosition = clampPosition(
+          {
+            x: event.clientX - dragState.offsetX,
+            y: event.clientY - dragState.offsetY
+          },
+          width,
+          height
+        );
+
+        persistedPreviewPosition = nextPosition;
+        setPreviewPosition(nextPosition);
+      },
+      [clampPosition, getPreviewSize]
+    );
+
+    const handleDragEnd = useCallback(
+      (event: React.PointerEvent<HTMLDivElement>) => {
+        if (dragStateRef.current?.pointerId === event.pointerId) {
+          dragStateRef.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      },
+      []
+    );
 
     const waitForFrame = useCallback(async () => {
       const video = videoRef.current;
@@ -175,6 +385,23 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       return blob;
     }, [waitForFrame]);
 
+    useEffect(() => {
+      const handleBeforeUnload = () => {
+        persistedStream?.getTracks().forEach((track) => track.stop());
+        persistedStream = null;
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+      };
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -229,37 +456,91 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
 
     return (
       <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-2">
-              {isEnabled ? (
+        <div className="relative flex items-center">
+          {isEnabled && previewPosition ? (
+            <div
+              ref={previewRef}
+              className="fixed z-50"
+              style={{
+                left: previewPosition.x,
+                top: previewPosition.y
+              }}
+            >
+              <div className="relative h-[83px] w-[110px] min-h-[75px] min-w-[100px] max-h-[160px] max-w-[210px] resize overflow-hidden rounded-2xl border border-border bg-background shadow-xl sm:h-[105px] sm:w-[140px]">
+                <div
+                  className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/55 to-transparent px-3 py-2 text-xs font-medium text-white"
+                >
+                  <div
+                    className="flex min-w-0 flex-1 cursor-move items-center"
+                    onPointerDown={handleDragStart}
+                    onPointerMove={handleDragMove}
+                    onPointerUp={handleDragEnd}
+                    onPointerCancel={handleDragEnd}
+                  >
+                    <span>Webcam</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="h-8 w-8 rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur hover:bg-background"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        resetPreviewPosition();
+                      }}
+                    >
+                      <RotateCcw className="!size-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="h-8 w-8 rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur hover:bg-background"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        stopStream();
+                      }}
+                    >
+                      <X className="!size-4" />
+                    </Button>
+                  </div>
+                </div>
                 <video
                   ref={videoRef}
                   autoPlay
                   muted
                   playsInline
-                  className="h-8 w-10 rounded-md object-cover bg-black"
+                  className="h-full w-full bg-black object-cover"
                 />
-              ) : (
-                <video ref={videoRef} muted playsInline className="hidden" />
-              )}
-              <Button
-                disabled={disabled || isBusy}
-                variant="ghost"
-                size="icon"
-                className="hover:bg-muted"
-                onClick={toggleStream}
-              >
-                {isBusy ? <LoaderCircle className="!size-5 animate-spin" /> : null}
-                {!isBusy && isEnabled ? <CameraOff className="!size-5" /> : null}
-                {!isBusy && !isEnabled ? <Camera className="!size-5" /> : null}
-              </Button>
+              </div>
             </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{isEnabled ? 'Disable webcam' : 'Enable webcam'}</p>
-          </TooltipContent>
-        </Tooltip>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                ref={buttonAnchorRef}
+                className="relative flex items-center"
+              >
+                <Button
+                  type="button"
+                  disabled={disabled || isBusy}
+                  variant="ghost"
+                  size="icon"
+                  className="hover:bg-muted"
+                  onClick={toggleStream}
+                >
+                  {isBusy ? <LoaderCircle className="!size-5 animate-spin" /> : null}
+                  {!isBusy && isEnabled ? <CameraOff className="!size-5" /> : null}
+                  {!isBusy && !isEnabled ? <Camera className="!size-5" /> : null}
+                </Button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{isEnabled ? 'Disable webcam' : 'Enable webcam'}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </TooltipProvider>
     );
   }
