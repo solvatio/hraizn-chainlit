@@ -1547,14 +1547,22 @@ async def upload_file(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        mime_type = file.content_type
+        if config.code.is_image_callback and config.code.convert_image_callback:
+            if config.code.is_image_callback(content):
+                # validate/convert image upload:
+                try:
+                    content, mime_type = config.code.convert_image_callback(content)
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
         file_response = await session.persist_file(
-            name=file.filename, content=content, mime=file.content_type
+            name=file.filename, content=content, mime=mime_type
         )
 
         return JSONResponse(content=file_response)
     finally:
         await file.close()
-
 
 def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None):
     """Validate the file upload as configured in config.features.spontaneous_file_upload or by AskFileSpec

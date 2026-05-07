@@ -408,6 +408,10 @@ class CodeSettings(BaseModel):
     author_rename: Optional[Callable[[str], Awaitable[str]]] = None
     data_layer: Optional[Callable[[], BaseDataLayer]] = None
 
+    # Image handling
+    is_image_callback: Optional[Callable[[bytes], bool]] = None
+    convert_image_callback: Optional[Callable[[bytes], tuple[bytes, str]]] = None
+
 
 class ProjectSettings(BaseModel):
     allow_origins: List[str] = Field(default_factory=lambda: ["*"])
