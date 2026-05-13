@@ -4,6 +4,7 @@ import {
   useRef,
   useState
 } from 'react';
+import { Plus } from 'lucide-react';
 import { useRecoilState, useSetRecoilState } from 'recoil';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -17,6 +18,11 @@ import {
 
 import { Settings } from '@/components/icons/Settings';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { useTranslation } from 'components/i18n/Translator';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -34,7 +40,10 @@ import Input, { InputMethods } from './Input';
 import McpButton from './Mcp';
 import SubmitButton from './SubmitButton';
 import UploadButton from './UploadButton';
-import WebcamButton, { WebcamButtonMethods } from './WebcamButton';
+import WebcamButton, {
+  WebcamButtonMethods,
+  WebcamToggleButton
+} from './WebcamButton';
 import VoiceButton from './VoiceButton';
 
 interface Props {
@@ -56,6 +65,7 @@ export default function MessageComposer({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWebcamBusy, setIsWebcamBusy] = useState(false);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
+  const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useRecoilState(
     persistentCommandState
   );
@@ -222,17 +232,53 @@ return (
           <WebcamButton
             ref={webcamRef}
             disabled={disabled}
+            hideTrigger
             onError={onFileUploadError}
             onBusyChange={setIsWebcamBusy}
             onEnabledChange={setIsWebcamEnabled}
           />
-          <VoiceButton disabled={disabled} />
-          <UploadButton
-            disabled={disabled}
-            fileSpec={fileSpec}
-            onFileUploadError={onFileUploadError}
-            onFileUpload={onFileUpload}
-          />
+          <DropdownMenu open={isMediaMenuOpen} onOpenChange={setIsMediaMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                disabled={disabled}
+                className="rounded-full hover:bg-foreground/10 hover:text-current"
+                variant="ghost"
+                size="icon"
+                aria-label="Open media actions"
+              >
+                <Plus
+                  className={`!size-5 transition-transform ${
+                    isMediaMenuOpen ? 'rotate-45' : ''
+                  }`}
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+            >
+              <div className="flex flex-col gap-1">
+                <WebcamToggleButton
+                  disabled={disabled}
+                  isBusy={isWebcamBusy}
+                  isEnabled={isWebcamEnabled}
+                  onClick={() => {
+                    webcamRef.current?.toggleStream();
+                    setIsMediaMenuOpen(false);
+                  }}
+                />
+                <VoiceButton disabled={disabled} />
+                <UploadButton
+                  disabled={disabled}
+                  fileSpec={fileSpec}
+                  onFileUploadError={onFileUploadError}
+                  onFileUpload={onFileUpload}
+                />
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {chatSettingsInputs.length > 0 && (
             <Button
               id="chat-settings-open-modal"

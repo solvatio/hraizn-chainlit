@@ -11,6 +11,7 @@ import { Camera, CameraOff, LoaderCircle, RotateCcw, X } from 'lucide-react';
 
 import { useChatInteract, useConfig } from '@chainlit/react-client';
 
+import { Translator } from '@/components/i18n';
 import { IAttachment } from '@/state/chat';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,10 +23,19 @@ import {
 
 export interface WebcamButtonMethods {
   captureAndUpload: () => Promise<IAttachment | null>;
+  toggleStream: () => void;
+}
+
+interface WebcamToggleButtonProps {
+  disabled?: boolean;
+  isBusy?: boolean;
+  isEnabled?: boolean;
+  onClick?: () => void;
 }
 
 interface Props {
   disabled?: boolean;
+  hideTrigger?: boolean;
   onError: (error: string) => void;
   onBusyChange?: (busy: boolean) => void;
   onEnabledChange?: (enabled: boolean) => void;
@@ -43,8 +53,44 @@ const PREVIEW_MARGIN = 16;
 let persistedStream: MediaStream | null = null;
 let persistedPreviewPosition: PreviewPosition | null = null;
 
+export const WebcamToggleButton = ({
+  disabled,
+  isBusy = false,
+  isEnabled = false,
+  onClick
+}: WebcamToggleButtonProps) => (
+  <TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          disabled={disabled || isBusy}
+          variant="ghost"
+          size="icon"
+          className="hover:bg-foreground/10 hover:text-current"
+          onClick={onClick}
+          aria-label={isEnabled ? 'Disable webcam' : 'Enable webcam'}
+        >
+          {isBusy ? <LoaderCircle className="!size-5 animate-spin" /> : null}
+          {!isBusy && isEnabled ? <CameraOff className="!size-5" /> : null}
+          {!isBusy && !isEnabled ? <Camera className="!size-5" /> : null}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>
+          {isEnabled ? (
+            <Translator path="chat.input.actions.disableWebcam" />
+          ) : (
+            <Translator path="chat.input.actions.enableWebcam" />
+          )}
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
+
 const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
-  ({ disabled, onError, onBusyChange, onEnabledChange }, ref) => {
+  ({ disabled, hideTrigger = false, onError, onBusyChange, onEnabledChange }, ref) => {
     const { config } = useConfig();
     const { uploadFile } = useChatInteract();
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -445,9 +491,10 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
           } finally {
             setIsUploading(false);
           }
-        }
+        },
+        toggleStream
       }),
-      [captureBlob, isFeatureEnabled, onError, uploadFile]
+      [captureBlob, isFeatureEnabled, onError, toggleStream, uploadFile]
     );
 
     if (!isFeatureEnabled) {
@@ -516,30 +563,19 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
               </div>
             </div>
           ) : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div
-                ref={buttonAnchorRef}
-                className="relative flex items-center"
-              >
-                <Button
-                  type="button"
-                  disabled={disabled || isBusy}
-                  variant="ghost"
-                  size="icon"
-                  className="hover:bg-muted"
-                  onClick={toggleStream}
-                >
-                  {isBusy ? <LoaderCircle className="!size-5 animate-spin" /> : null}
-                  {!isBusy && isEnabled ? <CameraOff className="!size-5" /> : null}
-                  {!isBusy && !isEnabled ? <Camera className="!size-5" /> : null}
-                </Button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{isEnabled ? 'Disable webcam' : 'Enable webcam'}</p>
-            </TooltipContent>
-          </Tooltip>
+          <div
+            ref={buttonAnchorRef}
+            className={hideTrigger ? 'pointer-events-none absolute opacity-0' : 'relative flex items-center'}
+          >
+            {!hideTrigger ? (
+              <WebcamToggleButton
+                disabled={disabled}
+                isBusy={isBusy}
+                isEnabled={isEnabled}
+                onClick={toggleStream}
+              />
+            ) : null}
+          </div>
         </div>
       </TooltipProvider>
     );

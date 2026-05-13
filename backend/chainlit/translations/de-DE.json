@@ -62,7 +62,9 @@
       "actions": {
         "send": "Nachricht senden",
         "stop": "Aufgabe stoppen",
-        "attachFiles": "Dateien anhängen"
+        "attachFiles": "Dateien anhängen",
+        "enableWebcam": "Webcam aktivieren",
+        "disableWebcam": "Webcam deaktivieren"
       }
     },
     "commands": {
