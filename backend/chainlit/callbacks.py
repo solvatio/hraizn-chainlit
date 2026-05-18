@@ -62,6 +62,20 @@ def on_app_shutdown(func: Callable[[], Union[None, Awaitable[None]]]) -> Callabl
     return func
 
 
+def is_image_callback(
+    func: Callable[[bytes], bool]
+) -> Callable:
+    config.code.is_image_callback = func
+    return func
+
+
+def convert_image_callback(
+    func: Callable[[bytes], tuple[bytes, str]]
+) -> Callable:
+    config.code.convert_image_callback = func
+    return func
+
+
 def password_auth_callback(
     func: Callable[[str, str], Awaitable[Optional[User]]],
 ) -> Callable:

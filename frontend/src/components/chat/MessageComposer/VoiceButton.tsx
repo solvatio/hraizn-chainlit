@@ -85,7 +85,7 @@ const VoiceButton = ({ disabled }: Props) => {
               disabled={disabled}
               variant="ghost"
               size="icon"
-              className="hover:bg-muted"
+              className="hover:bg-foreground/10 hover:text-current"
               onClick={
                 audioConnection === 'on'
                   ? endConversation

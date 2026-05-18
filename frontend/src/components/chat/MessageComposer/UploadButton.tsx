@@ -52,7 +52,7 @@ export const UploadButton = ({
               id={disabled ? 'upload-button-loading' : 'upload-button'}
               variant="ghost"
               size="icon"
-              className="hover:bg-muted"
+              className="hover:bg-foreground/10 hover:text-current"
               disabled={disabled}
               {...getRootProps()}
             >

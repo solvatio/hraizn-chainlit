@@ -84,6 +84,8 @@ from .callbacks import (
     send_window_message,
     set_chat_profiles,
     set_starters,
+    is_image_callback,
+    convert_image_callback
 )
 
 if TYPE_CHECKING:
@@ -204,6 +206,8 @@ __all__ = [
     "sleep",
     "step",
     "user_session",
+    "convert_image_callback",
+    "is_image_callback"
 ]
 
 

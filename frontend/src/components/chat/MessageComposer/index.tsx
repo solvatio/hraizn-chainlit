@@ -1,4 +1,10 @@
-import { MutableRefObject, useCallback, useRef, useState } from 'react';
+import {
+  MutableRefObject,
+  useCallback,
+  useRef,
+  useState
+} from 'react';
+import { Plus } from 'lucide-react';
 import { useRecoilState, useSetRecoilState } from 'recoil';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,6 +18,11 @@ import {
 
 import { Settings } from '@/components/icons/Settings';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 import { useTranslation } from 'components/i18n/Translator';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -29,6 +40,10 @@ import Input, { InputMethods } from './Input';
 import McpButton from './Mcp';
 import SubmitButton from './SubmitButton';
 import UploadButton from './UploadButton';
+import WebcamButton, {
+  WebcamButtonMethods,
+  WebcamToggleButton
+} from './WebcamButton';
 import VoiceButton from './VoiceButton';
 
 interface Props {
@@ -45,7 +60,12 @@ export default function MessageComposer({
   autoScrollRef
 }: Props) {
   const inputRef = useRef<InputMethods>(null);
+  const webcamRef = useRef<WebcamButtonMethods>(null);
   const [value, setValue] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWebcamBusy, setIsWebcamBusy] = useState(false);
+  const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
+  const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useRecoilState(
     persistentCommandState
   );
@@ -57,7 +77,11 @@ export default function MessageComposer({
   const { sendMessage, replyMessage } = useChatInteract();
   const { askUser, chatSettingsInputs, disabled: _disabled } = useChatData();
 
-  const disabled = _disabled || !!attachments.find((a) => !a.uploaded);
+  const disabled =
+    _disabled ||
+    isSubmitting ||
+    isWebcamBusy ||
+    !!attachments.find((a) => !a.uploaded);
 
   const isMobile = useIsMobile();
 
@@ -129,29 +153,48 @@ export default function MessageComposer({
     [user, replyMessage, autoScrollRef]
   );
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     if (
       disabled ||
-      (value.trim() === '' && attachments.length === 0 && !selectedCommand)
+      (
+        value.trim() === '' &&
+        attachments.length === 0 &&
+        !selectedCommand &&
+        !isWebcamEnabled
+      )
     ) {
       return;
     }
 
-    if (askUser) {
-      onReply(value);
-    } else {
-      onSubmit(value, attachments, selectedCommand?.id);
-    }
+    setIsSubmitting(true);
 
-    setAttachments([]);
-    setValue(''); // Clear the value state
-    inputRef.current?.reset();
+    try {
+      if (askUser) {
+        onReply(value);
+      } else {
+        const webcamAttachment = await webcamRef.current?.captureAndUpload();
+        const nextAttachments = webcamAttachment
+          ? attachments.concat(webcamAttachment)
+          : attachments;
+
+        await onSubmit(value, nextAttachments, selectedCommand?.id);
+      }
+
+      setAttachments([]);
+      setValue('');
+      inputRef.current?.reset();
+    } catch {
+      return;
+    } finally {
+      setIsSubmitting(false);
+    }
   }, [
     value,
     disabled,
     askUser,
     attachments,
     selectedCommand,
+    isWebcamEnabled,
     setAttachments,
     onSubmit,
     onReply
@@ -160,68 +203,118 @@ export default function MessageComposer({
 return (
   <div id="message-composer" className="w-full">
     {/* WRAPPER: Input + Buttons im selben Pill-Container */}
-    <div className="bg-accent dark:bg-card rounded-3xl px-4 flex items-start gap-2">
+    <div className="bg-accent dark:bg-card rounded-3xl px-4 flex flex-col gap-2">
+      {/* Attachments oben */}
       {attachments.length > 0 && (
-        <div className="mr-2 pt-1">
+        <div className="pt-2">
           <Attachments />
         </div>
       )}
 
-      {/* INPUT: wächst bei Shift+Return */}
-      <div className="flex-1 py-1">
-        <Input
-          ref={inputRef}
-          id="chat-input"
-          autoFocus={!isMobile}
-          selectedCommand={selectedCommand}
-          setSelectedCommand={setSelectedCommand}
-          onChange={setValue}
-          onPaste={onPaste}
-          onEnter={submit}
-          placeholder={t("chat.input.placeholder")}
-          className="min-h-10 py-2 leading-normal"
-        />
-      </div>
+      {/* Input + Buttons in einer Reihe */}
+      <div className="flex items-start gap-2">
+        <div className="flex-1 py-1">
+          <Input
+            ref={inputRef}
+            id="chat-input"
+            autoFocus={!isMobile}
+            selectedCommand={selectedCommand}
+            setSelectedCommand={setSelectedCommand}
+            onChange={setValue}
+            onPaste={onPaste}
+            onEnter={submit}
+            placeholder={t("chat.input.placeholder")}
+            className="min-h-10 py-2 leading-normal"
+          />
+        </div>
 
-      {/* BUTTONS: bleiben auf 1-Zeilen-Höhe zentriert, wandern nicht mit */}
-      <div className="sticky top-0 h-12 flex items-center gap-1">
-        <VoiceButton disabled={disabled} />
-        <UploadButton
-          disabled={disabled}
-          fileSpec={fileSpec}
-          onFileUploadError={onFileUploadError}
-          onFileUpload={onFileUpload}
-        />
-        {chatSettingsInputs.length > 0 && (
-          <Button
-            id="chat-settings-open-modal"
+        <div className="sticky top-0 h-12 flex items-center gap-1">
+          <WebcamButton
+            ref={webcamRef}
             disabled={disabled}
-            onClick={() => setChatSettingsOpen(true)}
-            className="hover:bg-muted rounded-full"
-            variant="ghost"
-            size="icon"
-          >
-            <Settings className="!size-6" />
-          </Button>
-        )}
-        <McpButton disabled={disabled} />
-        <CommandButton
-          disabled={disabled}
-          selectedCommandId={selectedCommand?.id}
-          onCommandSelect={setSelectedCommand}
-        />
-        <CommandButtons
-          disabled={disabled}
-          selectedCommandId={selectedCommand?.id}
-          onCommandSelect={setSelectedCommand}
-        />
-        <SubmitButton
-          onSubmit={submit}
-          disabled={
-            disabled ||
-            (!value.trim() && !selectedCommand && attachments.length === 0)
-          }
-        />
+            hideTrigger
+            onError={onFileUploadError}
+            onBusyChange={setIsWebcamBusy}
+            onEnabledChange={setIsWebcamEnabled}
+          />
+          <DropdownMenu open={isMediaMenuOpen} onOpenChange={setIsMediaMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                disabled={disabled}
+                className="rounded-full hover:bg-foreground/10 hover:text-current"
+                variant="ghost"
+                size="icon"
+                aria-label="Open media actions"
+              >
+                <Plus
+                  className={`!size-5 transition-transform ${
+                    isMediaMenuOpen ? 'rotate-45' : ''
+                  }`}
+                />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+            >
+              <div className="flex flex-col gap-1">
+                <WebcamToggleButton
+                  disabled={disabled}
+                  isBusy={isWebcamBusy}
+                  isEnabled={isWebcamEnabled}
+                  onClick={() => {
+                    webcamRef.current?.toggleStream();
+                    setIsMediaMenuOpen(false);
+                  }}
+                />
+                <VoiceButton disabled={disabled} />
+                <UploadButton
+                  disabled={disabled}
+                  fileSpec={fileSpec}
+                  onFileUploadError={onFileUploadError}
+                  onFileUpload={onFileUpload}
+                />
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {chatSettingsInputs.length > 0 && (
+            <Button
+              id="chat-settings-open-modal"
+              disabled={disabled}
+              onClick={() => setChatSettingsOpen(true)}
+              className="hover:bg-muted rounded-full"
+              variant="ghost"
+              size="icon"
+            >
+              <Settings className="!size-6" />
+            </Button>
+          )}
+          <McpButton disabled={disabled} />
+          <CommandButton
+            disabled={disabled}
+            selectedCommandId={selectedCommand?.id}
+            onCommandSelect={setSelectedCommand}
+          />
+          <CommandButtons
+            disabled={disabled}
+            selectedCommandId={selectedCommand?.id}
+            onCommandSelect={setSelectedCommand}
+          />
+          <SubmitButton
+            onSubmit={submit}
+            disabled={
+              disabled ||
+              (
+                !value.trim() &&
+                !selectedCommand &&
+                attachments.length === 0 &&
+                !isWebcamEnabled
+              )
+            }
+          />
+        </div>
       </div>
     </div>
   </div>

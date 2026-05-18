@@ -270,6 +270,8 @@ class AudioFeature(BaseModel):
     sample_rate: int = 24000
     enabled: bool = False
 
+class WebcamFeature(BaseModel):
+    enabled: bool = True
 
 class McpSseFeature(BaseModel):
     enabled: bool = True
@@ -300,6 +302,7 @@ class McpFeature(BaseModel):
 class FeaturesSettings(BaseModel):
     spontaneous_file_upload: Optional[SpontaneousFileUploadFeature] = None
     audio: Optional[AudioFeature] = Field(default_factory=AudioFeature)
+    webcam: Optional[WebcamFeature] = Field(default_factory=WebcamFeature)
     mcp: McpFeature = Field(default_factory=McpFeature)
     slack: SlackFeature = Field(default_factory=SlackFeature)
     latex: bool = False
@@ -404,6 +407,10 @@ class CodeSettings(BaseModel):
     on_window_message: Optional[Callable[[str], Any]] = None
     author_rename: Optional[Callable[[str], Awaitable[str]]] = None
     data_layer: Optional[Callable[[], BaseDataLayer]] = None
+
+    # Image handling
+    is_image_callback: Optional[Callable[[bytes], bool]] = None
+    convert_image_callback: Optional[Callable[[bytes], tuple[bytes, str]]] = None
 
 
 class ProjectSettings(BaseModel):

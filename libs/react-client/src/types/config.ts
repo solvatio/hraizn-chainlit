@@ -19,6 +19,10 @@ export interface IAudioConfig {
   sample_rate: number;
 }
 
+export interface IWebcamConfig {
+  enabled?: boolean;
+}
+
 export interface IAuthConfig {
   requireLogin: boolean;
   anonymousAuth?: boolean;
@@ -64,6 +68,7 @@ export interface IChainlitConfig {
       max_files?: number;
       accept?: string[] | Record<string, string[]>;
     };
+    webcam?: IWebcamConfig;
     audio: IAudioConfig;
     unsafe_allow_html?: boolean;
     user_message_autoscroll?: boolean;

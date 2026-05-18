@@ -62,7 +62,9 @@
       "actions": {
         "send": "Send message",
         "stop": "Stop Task",
-        "attachFiles": "Attach files"
+        "attachFiles": "Attach files",
+        "enableWebcam": "Enable webcam",
+        "disableWebcam": "Disable webcam"
       }
     },
     "commands": {
