@@ -177,6 +177,7 @@ export default function MessageComposer({
           ? attachments.concat(webcamAttachment)
           : attachments;
 
+        webcamRef.current?.disableStream();
         await onSubmit(value, nextAttachments, selectedCommand?.id);
       }
 

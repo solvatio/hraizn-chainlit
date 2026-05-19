@@ -24,6 +24,7 @@ import {
 export interface WebcamButtonMethods {
   captureAndUpload: () => Promise<IAttachment | null>;
   toggleStream: () => void;
+  disableStream: () => void;
 }
 
 interface WebcamToggleButtonProps {
@@ -492,9 +493,10 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
             setIsUploading(false);
           }
         },
-        toggleStream
+        toggleStream,
+        disableStream: stopStream
       }),
-      [captureBlob, isFeatureEnabled, onError, toggleStream, uploadFile]
+      [captureBlob, isFeatureEnabled, onError, stopStream, toggleStream, uploadFile]
     );
 
     if (!isFeatureEnabled) {
