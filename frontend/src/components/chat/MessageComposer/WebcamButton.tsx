@@ -7,13 +7,16 @@ import {
   useRef,
   useState
 } from 'react';
-import { Camera, CameraOff, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { Camera, CameraOff, CameraIcon, LoaderCircle, X } from 'lucide-react';
 
 import { useChatInteract, useConfig } from '@chainlit/react-client';
+import { useSetRecoilState } from 'recoil';
+import { v4 as uuidv4 } from 'uuid';
 
 import { Translator } from '@/components/i18n';
-import { IAttachment } from '@/state/chat';
+import { IAttachment, attachmentsState } from '@/state/chat';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import {
   Tooltip,
   TooltipContent,
@@ -42,17 +45,27 @@ interface Props {
   onEnabledChange?: (enabled: boolean) => void;
 }
 
-interface PreviewPosition {
-  x: number;
-  y: number;
-}
-
-const DEFAULT_PREVIEW_WIDTH = 140;
-const DEFAULT_PREVIEW_HEIGHT = 105;
-const PREVIEW_MARGIN = 16;
-
 let persistedStream: MediaStream | null = null;
-let persistedPreviewPosition: PreviewPosition | null = null;
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('Unable to generate image preview.'));
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error('Unable to generate image preview.'));
+    };
+
+    reader.readAsDataURL(file);
+  });
 
 export const WebcamToggleButton = ({
   disabled,
@@ -94,22 +107,14 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
   ({ disabled, hideTrigger = false, onError, onBusyChange, onEnabledChange }, ref) => {
     const { config } = useConfig();
     const { uploadFile } = useChatInteract();
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const previewRef = useRef<HTMLDivElement>(null);
-    const buttonAnchorRef = useRef<HTMLDivElement>(null);
+    const setAttachments = useSetRecoilState(attachmentsState);
     const streamRef = useRef<MediaStream | null>(null);
-    const dragStateRef = useRef<{
-      pointerId: number;
-      offsetX: number;
-      offsetY: number;
-    } | null>(null);
 
     const [isEnabled, setIsEnabled] = useState(!!persistedStream);
     const [isRequesting, setIsRequesting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    const [previewPosition, setPreviewPosition] = useState<PreviewPosition | null>(
-      persistedPreviewPosition
-    );
+    const [chatWidth, setChatWidth] = useState<number | null>(null);
+    const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
 
     const isFeatureEnabled = !!config?.features?.webcam?.enabled;
     const isBusy = isRequesting || isUploading;
@@ -122,83 +127,37 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       onEnabledChange?.(isEnabled);
     }, [isEnabled, onEnabledChange]);
 
-    const clampPosition = useCallback(
-      (position: PreviewPosition, width: number, height: number) => {
-        const maxX = Math.max(PREVIEW_MARGIN, window.innerWidth - width - PREVIEW_MARGIN);
-        const maxY = Math.max(PREVIEW_MARGIN, window.innerHeight - height - PREVIEW_MARGIN);
+    const attachStreamToVideo = useCallback(
+      async (video: HTMLVideoElement | null) => {
+        const stream = streamRef.current;
 
-        return {
-          x: Math.min(Math.max(position.x, PREVIEW_MARGIN), maxX),
-          y: Math.min(Math.max(position.y, PREVIEW_MARGIN), maxY)
-        };
+        if (!video || !stream) {
+          return;
+        }
+
+        if (video.srcObject !== stream) {
+          video.srcObject = stream;
+        }
+
+        await video.play().catch(() => undefined);
       },
       []
     );
 
-    const getPreviewSize = useCallback(() => {
-      const rect = previewRef.current?.getBoundingClientRect();
-
-      return {
-        width: rect?.width ?? DEFAULT_PREVIEW_WIDTH,
-        height: rect?.height ?? DEFAULT_PREVIEW_HEIGHT
-      };
-    }, []);
-
-    const getDefaultPreviewPosition = useCallback(() => {
-      const { width, height } = getPreviewSize();
-      const anchorRect = buttonAnchorRef.current?.getBoundingClientRect();
-      const composerRect = document
-        .getElementById('message-composer')
-        ?.getBoundingClientRect();
-      const fallbackX = window.innerWidth - width - PREVIEW_MARGIN;
-      const fallbackY = window.innerHeight - height - 96;
-
-      return clampPosition(
-        {
-          x: composerRect
-            ? composerRect.right - width
-            : anchorRect
-              ? anchorRect.right - width
-              : fallbackX,
-          y: anchorRect ? anchorRect.top - height - 12 : fallbackY
-        },
-        width,
-        height
-      );
-    }, [clampPosition, getPreviewSize]);
-
-    const positionPreviewNearButton = useCallback(() => {
-      if (persistedPreviewPosition) {
-        setPreviewPosition(persistedPreviewPosition);
-        return;
-      }
-
-      const nextPosition = getDefaultPreviewPosition();
-
-      persistedPreviewPosition = nextPosition;
-      setPreviewPosition(nextPosition);
-    }, [getDefaultPreviewPosition]);
-
-    const resetPreviewPosition = useCallback(() => {
-      const nextPosition = getDefaultPreviewPosition();
-      persistedPreviewPosition = nextPosition;
-      setPreviewPosition(nextPosition);
-    }, [getDefaultPreviewPosition]);
-
     const syncVideoPreview = useCallback(async () => {
-      const video = videoRef.current;
-      const stream = streamRef.current;
+      await attachStreamToVideo(videoElement);
+    }, [attachStreamToVideo, videoElement]);
 
-      if (!video || !stream) {
-        return;
-      }
+    const handleVideoRef = useCallback(
+      (node: HTMLVideoElement | null) => {
+        setVideoElement(node);
 
-      if (video.srcObject !== stream) {
-        video.srcObject = stream;
-      }
-
-      await video.play().catch(() => undefined);
-    }, []);
+        if (node) {
+          void attachStreamToVideo(node);
+        }
+      },
+      [attachStreamToVideo]
+    );
 
     const stopStream = useCallback(() => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -206,10 +165,10 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       persistedStream = null;
       setIsEnabled(false);
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      if (videoElement) {
+        videoElement.srcObject = null;
       }
-    }, []);
+    }, [videoElement]);
 
     const startStream = useCallback(async () => {
       if (
@@ -254,53 +213,73 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
         return;
       }
 
-      if (!previewPosition) {
-        positionPreviewNearButton();
-      }
-
       void syncVideoPreview();
-    }, [isEnabled, positionPreviewNearButton, previewPosition, syncVideoPreview]);
+    }, [isEnabled, syncVideoPreview]);
 
     useLayoutEffect(() => {
-      if (!isEnabled || !previewPosition) {
+      if (typeof window === 'undefined') {
         return;
       }
 
-      const { width, height } = getPreviewSize();
-      const nextPosition = clampPosition(previewPosition, width, height);
+      const composer = document.getElementById('message-composer');
 
-      if (
-        nextPosition.x !== previewPosition.x ||
-        nextPosition.y !== previewPosition.y
-      ) {
-        persistedPreviewPosition = nextPosition;
-        setPreviewPosition(nextPosition);
+      if (!composer) {
+        setChatWidth(null);
+        return;
       }
-    }, [clampPosition, getPreviewSize, isEnabled, previewPosition]);
 
-    useEffect(() => {
-      const handleWindowResize = () => {
-        if (!persistedPreviewPosition) {
-          return;
-        }
+      const syncChatWidth = () => {
+        const nextWidth = Math.floor(composer.getBoundingClientRect().width);
 
-        const { width, height } = getPreviewSize();
-        const nextPosition = clampPosition(
-          persistedPreviewPosition,
-          width,
-          height
+        setChatWidth((currentWidth) =>
+          currentWidth === nextWidth ? currentWidth : nextWidth
         );
-
-        persistedPreviewPosition = nextPosition;
-        setPreviewPosition(nextPosition);
       };
 
-      window.addEventListener('resize', handleWindowResize);
+      syncChatWidth();
+
+      if (typeof ResizeObserver === 'undefined') {
+        window.addEventListener('resize', syncChatWidth);
+
+        return () => {
+          window.removeEventListener('resize', syncChatWidth);
+        };
+      }
+
+      const observer = new ResizeObserver(() => {
+        syncChatWidth();
+      });
+
+      observer.observe(composer);
 
       return () => {
-        window.removeEventListener('resize', handleWindowResize);
+        observer.disconnect();
       };
-    }, [clampPosition, getPreviewSize]);
+    }, []);
+
+    const getModalWidth = useCallback(() => {
+      if (typeof window === 'undefined') {
+        return undefined;
+      }
+
+      const viewportWidth = Math.max(window.innerWidth - 32, 280);
+
+      if (!chatWidth) {
+        return viewportWidth;
+      }
+
+      return Math.min(chatWidth, viewportWidth);
+    }, [chatWidth]);
+
+    const handleDialogOpenChange = useCallback(
+      (open: boolean) => {
+        if (!open && streamRef.current) {
+          stopStream();
+          return;
+        }
+      },
+      [stopStream]
+    );
 
     const toggleStream = useCallback(() => {
       if (streamRef.current) {
@@ -311,61 +290,8 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       void startStream();
     }, [startStream, stopStream]);
 
-    const handleDragStart = useCallback(
-      (event: React.PointerEvent<HTMLDivElement>) => {
-        const rect = previewRef.current?.getBoundingClientRect();
-
-        if (!rect) {
-          return;
-        }
-
-        dragStateRef.current = {
-          pointerId: event.pointerId,
-          offsetX: event.clientX - rect.left,
-          offsetY: event.clientY - rect.top
-        };
-
-        event.currentTarget.setPointerCapture(event.pointerId);
-      },
-      []
-    );
-
-    const handleDragMove = useCallback(
-      (event: React.PointerEvent<HTMLDivElement>) => {
-        const dragState = dragStateRef.current;
-
-        if (!dragState || dragState.pointerId !== event.pointerId) {
-          return;
-        }
-
-        const { width, height } = getPreviewSize();
-        const nextPosition = clampPosition(
-          {
-            x: event.clientX - dragState.offsetX,
-            y: event.clientY - dragState.offsetY
-          },
-          width,
-          height
-        );
-
-        persistedPreviewPosition = nextPosition;
-        setPreviewPosition(nextPosition);
-      },
-      [clampPosition, getPreviewSize]
-    );
-
-    const handleDragEnd = useCallback(
-      (event: React.PointerEvent<HTMLDivElement>) => {
-        if (dragStateRef.current?.pointerId === event.pointerId) {
-          dragStateRef.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-      },
-      []
-    );
-
     const waitForFrame = useCallback(async () => {
-      const video = videoRef.current;
+      const video = videoElement;
 
       if (!video) {
         throw new Error('Webcam preview is not ready.');
@@ -397,7 +323,7 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       });
 
       return video;
-    }, []);
+    }, [videoElement]);
 
     const captureBlob = useCallback(async () => {
       const video = await waitForFrame();
@@ -432,6 +358,99 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       return blob;
     }, [waitForFrame]);
 
+    const handleTakeSnapshot = useCallback(async () => {
+      if (!streamRef.current || isBusy) {
+        return;
+      }
+
+      setIsUploading(true);
+      let attachmentId: string | null = null;
+
+      try {
+        const blob = await captureBlob();
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const file = new File([blob], `webcam-${timestamp}.jpg`, {
+          type: 'image/jpeg'
+        });
+        const currentAttachmentId = uuidv4();
+        attachmentId = currentAttachmentId;
+        const { xhr, promise } = uploadFile(file, (progress) => {
+          setAttachments((prev) =>
+            prev.map((attachment) =>
+              attachment.id === currentAttachmentId
+                ? { ...attachment, uploadProgress: progress }
+                : attachment
+            )
+          );
+        });
+
+        stopStream();
+
+        const removeAttachment = () => {
+          setAttachments((prev) =>
+            prev.filter((attachment) => attachment.id !== attachmentId)
+          );
+        };
+
+        setAttachments((prev) =>
+          prev.concat({
+            id: currentAttachmentId,
+            type: file.type,
+            name: file.name,
+            size: file.size,
+            uploadProgress: 0,
+            cancel: () => {
+              xhr.abort();
+              removeAttachment();
+            },
+            remove: removeAttachment
+          })
+        );
+
+        void readFileAsDataUrl(file)
+          .then((previewUrl) => {
+            setAttachments((prev) =>
+              prev.map((attachment) =>
+                attachment.id === currentAttachmentId
+                  ? { ...attachment, previewUrl }
+                  : attachment
+              )
+            );
+          })
+          .catch(() => undefined);
+
+        const result = await promise;
+
+        setAttachments((prev) =>
+          prev.map((attachment) =>
+            attachment.id === currentAttachmentId
+              ? {
+                  ...attachment,
+                  serverId: result.id,
+                  uploaded: true,
+                  uploadProgress: 100,
+                  cancel: undefined
+                }
+              : attachment
+          )
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unable to capture and upload a webcam screenshot.';
+
+        if (attachmentId) {
+          setAttachments((prev) =>
+            prev.filter((attachment) => attachment.id !== attachmentId)
+          );
+        }
+        onError(message);
+      } finally {
+        setIsUploading(false);
+      }
+    }, [captureBlob, isBusy, onError, setAttachments, stopStream, uploadFile]);
+
     useEffect(() => {
       const handleBeforeUnload = () => {
         persistedStream?.getTracks().forEach((track) => track.stop());
@@ -443,11 +462,11 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
       return () => {
         window.removeEventListener('beforeunload', handleBeforeUnload);
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = null;
+        if (videoElement) {
+          videoElement.srcObject = null;
         }
       };
-    }, []);
+    }, [videoElement]);
 
     useImperativeHandle(
       ref,
@@ -506,41 +525,41 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
     return (
       <TooltipProvider>
         <div className="relative flex items-center">
-          {isEnabled && previewPosition ? (
-            <div
-              ref={previewRef}
-              className="fixed z-50"
-              style={{
-                left: previewPosition.x,
-                top: previewPosition.y
-              }}
+          <Dialog open={isEnabled} onOpenChange={handleDialogOpenChange}>
+            <DialogContent
+              className="border border-border bg-background p-0 shadow-xl sm:rounded-2xl [&>button:last-child]:hidden"
+              style={{ width: getModalWidth() }}
             >
-              <div className="relative h-[83px] w-[110px] min-h-[75px] min-w-[100px] max-h-[160px] max-w-[210px] resize overflow-hidden rounded-2xl border border-border bg-background shadow-xl sm:h-[105px] sm:w-[140px]">
-                <div
-                  className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/55 to-transparent px-3 py-2 text-xs font-medium text-white"
-                >
-                  <div
-                    className="flex min-w-0 flex-1 cursor-move items-center"
-                    onPointerDown={handleDragStart}
-                    onPointerMove={handleDragMove}
-                    onPointerUp={handleDragEnd}
-                    onPointerCancel={handleDragEnd}
-                  >
+              <DialogTitle className="sr-only">Webcam</DialogTitle>
+              <div className="relative aspect-[4/3] min-h-[240px] overflow-hidden bg-black sm:rounded-2xl">
+                <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/55 to-transparent px-3 py-2 text-xs font-medium text-white">
+                  <div className="flex min-w-0 flex-1 items-center">
                     <span>Webcam</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon"
-                      className="h-8 w-8 rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur hover:bg-background"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        resetPreviewPosition();
-                      }}
-                    >
-                      <RotateCcw className="!size-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon"
+                          className="h-8 w-8 rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur hover:bg-background"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleTakeSnapshot();
+                          }}
+                          aria-label="Take webcam screenshot"
+                          disabled={isBusy}
+                        >
+                          <CameraIcon className="!size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          <Translator path="chat.input.actions.webcamScreenshot" />
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
                     <Button
                       type="button"
                       variant="secondary"
@@ -556,17 +575,16 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
                   </div>
                 </div>
                 <video
-                  ref={videoRef}
+                  ref={handleVideoRef}
                   autoPlay
                   muted
                   playsInline
                   className="h-full w-full bg-black object-cover"
                 />
               </div>
-            </div>
-          ) : null}
+            </DialogContent>
+          </Dialog>
           <div
-            ref={buttonAnchorRef}
             className={hideTrigger ? 'pointer-events-none absolute opacity-0' : 'relative flex items-center'}
           >
             {!hideTrigger ? (
