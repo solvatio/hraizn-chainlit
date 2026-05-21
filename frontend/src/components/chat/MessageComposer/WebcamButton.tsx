@@ -41,11 +41,36 @@ interface Props {
   disabled?: boolean;
   hideTrigger?: boolean;
   onError: (error: string) => void;
+  onAvailabilityChange?: (available: boolean) => void;
   onBusyChange?: (busy: boolean) => void;
   onEnabledChange?: (enabled: boolean) => void;
 }
 
 let persistedStream: MediaStream | null = null;
+
+interface DocumentWithFeaturePolicy extends Document {
+  featurePolicy?: {
+    allowsFeature?: (feature: string) => boolean;
+  };
+}
+
+const isWebcamAvailable = () => {
+  if (
+    typeof window === 'undefined' ||
+    typeof navigator === 'undefined' ||
+    !navigator.mediaDevices?.getUserMedia
+  ) {
+    return false;
+  }
+
+  const featurePolicy = (document as DocumentWithFeaturePolicy).featurePolicy;
+
+  if (featurePolicy?.allowsFeature) {
+    return featurePolicy.allowsFeature('camera');
+  }
+
+  return true;
+};
 
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -104,20 +129,38 @@ export const WebcamToggleButton = ({
 );
 
 const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
-  ({ disabled, hideTrigger = false, onError, onBusyChange, onEnabledChange }, ref) => {
+  (
+    {
+      disabled,
+      hideTrigger = false,
+      onError,
+      onAvailabilityChange,
+      onBusyChange,
+      onEnabledChange
+    },
+    ref
+  ) => {
     const { config } = useConfig();
     const { uploadFile } = useChatInteract();
     const setAttachments = useSetRecoilState(attachmentsState);
     const streamRef = useRef<MediaStream | null>(null);
 
     const [isEnabled, setIsEnabled] = useState(!!persistedStream);
+    const [isAvailable, setIsAvailable] = useState(isWebcamAvailable);
     const [isRequesting, setIsRequesting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [chatWidth, setChatWidth] = useState<number | null>(null);
     const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null);
 
-    const isFeatureEnabled = !!config?.features?.webcam?.enabled;
+    const isFeatureEnabled = !!config?.features?.webcam?.enabled && isAvailable;
     const isBusy = isRequesting || isUploading;
+
+    useEffect(() => {
+      const available = isWebcamAvailable();
+
+      setIsAvailable(available);
+      onAvailabilityChange?.(available);
+    }, [onAvailabilityChange]);
 
     useEffect(() => {
       onBusyChange?.(isBusy);
@@ -171,11 +214,8 @@ const WebcamButton = forwardRef<WebcamButtonMethods, Props>(
     }, [videoElement]);
 
     const startStream = useCallback(async () => {
-      if (
-        typeof navigator === 'undefined' ||
-        !navigator.mediaDevices?.getUserMedia
-      ) {
-        onError('Webcam is not supported in this browser.');
+      if (!isWebcamAvailable()) {
+        onError('Webcam is unavailable in this browser or embedding context.');
         return;
       }
 

@@ -65,6 +65,7 @@ export default function MessageComposer({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWebcamBusy, setIsWebcamBusy] = useState(false);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
+  const [isWebcamAvailable, setIsWebcamAvailable] = useState(false);
   const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useRecoilState(
     persistentCommandState
@@ -235,6 +236,7 @@ return (
             disabled={disabled}
             hideTrigger
             onError={onFileUploadError}
+            onAvailabilityChange={setIsWebcamAvailable}
             onBusyChange={setIsWebcamBusy}
             onEnabledChange={setIsWebcamEnabled}
           />
@@ -261,15 +263,17 @@ return (
               className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
             >
               <div className="flex flex-col gap-1">
-                <WebcamToggleButton
-                  disabled={disabled}
-                  isBusy={isWebcamBusy}
-                  isEnabled={isWebcamEnabled}
-                  onClick={() => {
-                    webcamRef.current?.toggleStream();
-                    setIsMediaMenuOpen(false);
-                  }}
-                />
+                {isWebcamAvailable ? (
+                  <WebcamToggleButton
+                    disabled={disabled}
+                    isBusy={isWebcamBusy}
+                    isEnabled={isWebcamEnabled}
+                    onClick={() => {
+                      webcamRef.current?.toggleStream();
+                      setIsMediaMenuOpen(false);
+                    }}
+                  />
+                ) : null}
                 <VoiceButton disabled={disabled} />
                 <UploadButton
                   disabled={disabled}
