@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from typing import Any, Dict, Literal, Optional, Tuple, TypedDict, Union
 from urllib.parse import unquote
 
@@ -252,6 +253,11 @@ async def disconnect(sid):
 
     async def clear(_sid):
         if session := WebsocketSession.get(_sid):
+            if config.code.on_session_delete:
+                try:
+                    await config.code.on_session_delete(session.id)
+                except Exception:
+                    logging.exception("Failed to call on_session_delete")
             # Clean up the user session
             if session.id in user_sessions:
                 user_sessions.pop(session.id)

@@ -85,7 +85,8 @@ from .callbacks import (
     set_chat_profiles,
     set_starters,
     is_image_callback,
-    convert_image_callback
+    convert_image_callback,
+    on_session_delete
 )
 
 if TYPE_CHECKING:
@@ -207,7 +208,8 @@ __all__ = [
     "step",
     "user_session",
     "convert_image_callback",
-    "is_image_callback"
+    "is_image_callback",
+    "on_session_delete"
 ]
 
 

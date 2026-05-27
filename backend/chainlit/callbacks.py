@@ -75,6 +75,11 @@ def convert_image_callback(
     config.code.convert_image_callback = func
     return func
 
+def on_session_delete(
+    func: Callable[[str], Awaitable[None]]
+) -> Callable:
+    config.code.on_session_delete = wrap_user_function(func, with_task=False)
+    return func
 
 def password_auth_callback(
     func: Callable[[str, str], Awaitable[Optional[User]]],
