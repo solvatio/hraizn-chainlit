@@ -13,7 +13,8 @@ import {
   IStep,
   useAuth,
   useChatData,
-  useChatInteract
+  useChatInteract,
+  useConfig
 } from '@chainlit/react-client';
 
 import { Settings } from '@/components/icons/Settings';
@@ -77,12 +78,14 @@ export default function MessageComposer({
   const { user } = useAuth();
   const { sendMessage, replyMessage } = useChatInteract();
   const { askUser, chatSettingsInputs, disabled: _disabled } = useChatData();
+  const { config } = useConfig();
 
   const disabled =
     _disabled ||
     isSubmitting ||
     isWebcamBusy ||
     !!attachments.find((a) => !a.uploaded);
+  const isWebcamFeatureEnabled = !!config?.features?.webcam?.enabled;
 
   const isMobile = useIsMobile();
 
@@ -263,7 +266,7 @@ return (
               className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
             >
               <div className="flex flex-col gap-1">
-                {isWebcamAvailable ? (
+                {isWebcamFeatureEnabled && isWebcamAvailable ? (
                   <WebcamToggleButton
                     disabled={disabled}
                     isBusy={isWebcamBusy}
