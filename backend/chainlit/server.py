@@ -362,6 +362,21 @@ def replace_between_tags(
     return re.sub(pattern, start_tag + replacement + end_tag, text, flags=re.DOTALL)
 
 
+def get_root_path_url(root_path: str, url: str) -> str:
+    if (
+        not url.startswith("/")
+        or url.startswith("//")
+        or urllib.parse.urlparse(url).scheme
+    ):
+        return url
+
+    root_path = root_path.rstrip("/")
+    if not root_path or url == root_path or url.startswith(f"{root_path}/"):
+        return url
+
+    return f"{root_path}{url}"
+
+
 def get_html_template(root_path):
     """
     Get HTML template for the index view.
@@ -381,11 +396,10 @@ def get_html_template(root_path):
     CSS_PLACEHOLDER = "<!-- CSS INJECTION PLACEHOLDER -->"
 
     default_url = config.ui.custom_meta_url or "https://github.com/Chainlit/chainlit"
-    default_meta_image_url = (
-        "https://chainlit-cloud.s3.eu-west-3.amazonaws.com/logo/chainlit_banner.png"
-    )
-    meta_image_url = config.ui.custom_meta_image_url or default_meta_image_url
     favicon_path = "/favicon"
+    meta_image_url = get_root_path_url(
+        root_path, config.ui.custom_meta_image_url or favicon_path
+    )
 
     tags = f"""<title>{config.ui.name}</title>
     <link rel="icon" href="{favicon_path}" />

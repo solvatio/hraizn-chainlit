@@ -14,7 +14,7 @@ from chainlit.config import (
     ChainlitConfig,
     SpontaneousFileUploadFeature,
 )
-from chainlit.server import app
+from chainlit.server import app, get_root_path_url
 from chainlit.types import AskFileSpec
 from chainlit.user import PersistedUser
 
@@ -30,6 +30,25 @@ def mock_load_translation(test_config: ChainlitConfig, monkeypatch: pytest.Monke
     monkeypatch.setattr("chainlit.config.ChainlitConfig.load_translation", mock_method)
 
     return mock_method
+
+
+def test_get_root_path_url_prefixes_root_relative_url():
+    assert (
+        get_root_path_url("/Customer-Selfcare", "/favicon")
+        == "/Customer-Selfcare/favicon"
+    )
+
+
+def test_get_root_path_url_keeps_absolute_url():
+    url = "https://example.com/favicon.png"
+
+    assert get_root_path_url("/Customer-Selfcare", url) == url
+
+
+def test_get_root_path_url_keeps_already_prefixed_url():
+    url = "/Customer-Selfcare/favicon"
+
+    assert get_root_path_url("/Customer-Selfcare", url) == url
 
 
 def test_project_translations_default_language(
