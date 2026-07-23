@@ -16,6 +16,7 @@ import { AskFileButton } from './AskFileButton';
 import { MessageAvatar } from './Avatar';
 import { MessageButtons } from './Buttons';
 import { MessageContent } from './Content';
+import { ProgressMessage } from './ProgressMessage';
 import Step from './Step';
 import UserMessage from './UserMessage';
 
@@ -44,6 +45,8 @@ const Message = memo(
     const contentRef = useRef<HTMLDivElement>(null);
     const isUserMessage = message.type === 'user_message';
     const isStep = !message.type.includes('message');
+    const isProgressMessage =
+      !isStep && message.metadata?.type === 'progress_message';
     // Only keep tool calls if Chain of Thought is tool_call
     const toolCallSkip =
       isStep && cot === 'tool_call' && message.type !== 'tool';
@@ -95,6 +98,13 @@ const Message = memo(
                     />
                   </UserMessage>
                 </div>
+              ) : isProgressMessage ? (
+                <ProgressMessage
+                  elements={elements}
+                  message={message}
+                  allowHtml={allowHtml}
+                  latex={latex}
+                />
               ) : (
                 <div className="ai-message flex gap-4 w-full">
                   {!isStep || !indent ? (
