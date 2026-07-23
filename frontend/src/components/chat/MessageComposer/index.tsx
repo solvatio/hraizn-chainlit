@@ -86,6 +86,13 @@ export default function MessageComposer({
     isWebcamBusy ||
     !!attachments.find((a) => !a.uploaded);
   const isWebcamFeatureEnabled = !!config?.features?.webcam?.enabled;
+  const isFileUploadEnabled =
+    !!config?.features?.spontaneous_file_upload?.enabled;
+  const isVoiceEnabled = !!config?.features?.audio?.enabled;
+  const hasMediaMenuActions =
+    (isWebcamFeatureEnabled && isWebcamAvailable) ||
+    isFileUploadEnabled ||
+    isVoiceEnabled;
 
   const isMobile = useIsMobile();
 
@@ -243,50 +250,55 @@ return (
             onBusyChange={setIsWebcamBusy}
             onEnabledChange={setIsWebcamEnabled}
           />
-          <DropdownMenu open={isMediaMenuOpen} onOpenChange={setIsMediaMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                disabled={disabled}
-                className="rounded-full hover:bg-foreground/10 hover:text-current"
-                variant="ghost"
-                size="icon"
-                aria-label="Open media actions"
-              >
-                <Plus
-                  className={`!size-5 transition-transform ${
-                    isMediaMenuOpen ? 'rotate-45' : ''
-                  }`}
-                />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              side="top"
-              className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+          {hasMediaMenuActions ? (
+            <DropdownMenu
+              open={isMediaMenuOpen}
+              onOpenChange={setIsMediaMenuOpen}
             >
-              <div className="flex flex-col gap-1">
-                {isWebcamFeatureEnabled && isWebcamAvailable ? (
-                  <WebcamToggleButton
-                    disabled={disabled}
-                    isBusy={isWebcamBusy}
-                    isEnabled={isWebcamEnabled}
-                    onClick={() => {
-                      webcamRef.current?.toggleStream();
-                      setIsMediaMenuOpen(false);
-                    }}
-                  />
-                ) : null}
-                <VoiceButton disabled={disabled} />
-                <UploadButton
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
                   disabled={disabled}
-                  fileSpec={fileSpec}
-                  onFileUploadError={onFileUploadError}
-                  onFileUpload={onFileUpload}
-                />
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  className="rounded-full hover:bg-foreground/10 hover:text-current"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Open media actions"
+                >
+                  <Plus
+                    className={`!size-5 transition-transform ${
+                      isMediaMenuOpen ? 'rotate-45' : ''
+                    }`}
+                  />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="top"
+                className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+              >
+                <div className="flex flex-col gap-1">
+                  {isWebcamFeatureEnabled && isWebcamAvailable ? (
+                    <WebcamToggleButton
+                      disabled={disabled}
+                      isBusy={isWebcamBusy}
+                      isEnabled={isWebcamEnabled}
+                      onClick={() => {
+                        webcamRef.current?.toggleStream();
+                        setIsMediaMenuOpen(false);
+                      }}
+                    />
+                  ) : null}
+                  <VoiceButton disabled={disabled} />
+                  <UploadButton
+                    disabled={disabled}
+                    fileSpec={fileSpec}
+                    onFileUploadError={onFileUploadError}
+                    onFileUpload={onFileUpload}
+                  />
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           {chatSettingsInputs.length > 0 && (
             <Button
               id="chat-settings-open-modal"
