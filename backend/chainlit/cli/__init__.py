@@ -5,6 +5,8 @@ import click
 import nest_asyncio
 import uvicorn
 
+from chainlit import modes
+
 # Not sure if it is necessary to call nest_asyncio.apply() before the other imports
 nest_asyncio.apply()
 
@@ -101,6 +103,8 @@ def run_chainlit(target: str):
         )
         server = uvicorn.Server(config)
         await server.serve()
+
+    modes.mode_configs = modes.load_mode_configs()
 
     # Run the asyncio event loop instead of uvloop to enable re entrance
     asyncio.run(start())

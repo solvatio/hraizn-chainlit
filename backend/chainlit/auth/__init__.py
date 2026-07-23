@@ -14,7 +14,7 @@ from .cookie import (
     set_auth_cookie,
 )
 from .jwt import create_jwt, decode_jwt, get_jwt_secret
-from ..modes import get_mode_from_request
+from chainlit.modes import get_mode_from_request
 
 reuseable_oauth = OAuth2PasswordBearerWithCookie(tokenUrl="/login", auto_error=False)
 
@@ -52,7 +52,7 @@ def require_login(mode: str = None):
 
 
 
-def get_configuration(mode: str):
+def get_configuration(mode: str, config = config):
     return {
         "requireLogin": require_login(mode),
         "passwordAuth": config.code.password_auth_callback is not None and is_password_auth(mode),

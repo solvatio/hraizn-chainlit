@@ -79,7 +79,7 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
-from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request
+from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request, get_mode_config
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -264,10 +264,24 @@ router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), mode
 @router.get("/public/{filename:path}")
 async def serve_public_file(
     filename: str,
+    request: Request,
 ):
     """Serve a file from public dir."""
 
-    base_path = Path(public_dir)
+    root_path = os.getenv("CHAINLIT_PARENT_ROOT_PATH", "") + os.getenv(
+        "CHAINLIT_ROOT_PATH", ""
+    )
+
+    mode = get_mode(root_path, request.url.path)
+    if mode:
+        mode_name = mode.name or mode.default_name
+        base_path = Path(public_dir) / "modes" / mode_name
+        file_path = (base_path / filename).resolve()
+        if not file_path.exists():
+            base_path = Path(public_dir)
+    else:
+        base_path = Path(public_dir)
+
     file_path = (base_path / filename).resolve()
 
     if not is_path_inside(file_path, base_path):
@@ -377,7 +391,7 @@ def get_root_path_url(root_path: str, url: str) -> str:
     return f"{root_path}{url}"
 
 
-def get_html_template(root_path):
+def get_html_template(root_path, public_dir = public_dir, config: ChainlitConfig = config):
     """
     Get HTML template for the index view.
     """
@@ -477,7 +491,7 @@ def get_user_facing_url(url: URL):
 @router.get("/auth/config")
 async def auth(request: Request):
     mode_name = get_mode_from_request(request)
-    return get_configuration(mode=mode_name)
+    return get_configuration(mode=mode_name, config=get_mode_config(mode_name))
 
 
 def _get_response_dict(access_token: str) -> dict:
@@ -840,6 +854,7 @@ async def project_translations(
 @router.get("/project/settings")
 async def project_settings(
     current_user: UserParam,
+    request: Request,
     language: str = Query(
         default="en-US", description="Language code", pattern=_language_pattern
     ),
@@ -873,7 +888,8 @@ async def project_settings(
         await data_layer.build_debug_url() if data_layer and config.run.debug else None
     )
 
-    cfg = config
+    mode = get_mode_from_request(request)
+    cfg = get_mode_config(mode)
     if chat_profile and chat_profiles:
         current_profile = next(
             (p for p in chat_profiles if p.name == chat_profile), None
@@ -1691,10 +1707,14 @@ async def get_file(
 
 
 @router.get("/favicon")
-async def get_favicon():
+async def get_favicon(request: Request):
     """Get the favicon for the UI."""
-    custom_favicon_path = os.path.join(APP_ROOT, "public", "favicon.*")
-    files = glob.glob(custom_favicon_path)
+    mode = get_mode_from_request(request)
+    if mode:
+        custom_favicon_path = os.path.join(APP_ROOT, "public", "modes", mode, "favicon.*")
+        files = glob.glob(custom_favicon_path)
+    else:
+        files = []
 
     if files:
         favicon_path = files[0]
@@ -1707,15 +1727,23 @@ async def get_favicon():
 
 
 @router.get("/logo")
-async def get_logo(theme: Optional[Theme] = Query(Theme.light)):
+async def get_logo(request: Request, theme: Optional[Theme] = Query(Theme.light)):
     """Get the default logo for the UI."""
     theme_value = theme.value if theme else Theme.light.value
     logo_path = None
 
-    for path in [
+    paths = []
+
+    mode = get_mode_from_request(request)
+    if mode:
+        paths.append(os.path.join(APP_ROOT, "public", "modes", mode, f"logo_{theme_value}.*"))
+
+    paths.extend([
         os.path.join(APP_ROOT, "public", f"logo_{theme_value}.*"),
-        os.path.join(build_dir, "assets", f"logo_{theme_value}*.*"),
-    ]:
+        os.path.join(build_dir, "assets", f"logo_{theme_value}*.*")]
+    )
+
+    for path in paths:
         files = glob.glob(path)
 
         if files:
@@ -1737,17 +1765,21 @@ async def get_logo(theme: Optional[Theme] = Query(Theme.light)):
 
 
 @router.get("/avatars/{avatar_id:str}")
-async def get_avatar(avatar_id: str):
+async def get_avatar(avatar_id: str, request: Request):
     """Get the avatar for the user based on the avatar_id."""
     if not re.match(r"^[a-zA-Z0-9_ .-]+$", avatar_id):
         raise HTTPException(status_code=400, detail="Invalid avatar_id")
 
-    if avatar_id == "default":
-        avatar_id = config.ui.name
-
     avatar_id = avatar_id.strip().lower().replace(" ", "_").replace(".", "_")
 
     base_path = Path(APP_ROOT) / "public" / "avatars"
+
+    mode_name = get_mode_from_request(request)
+    if mode_name:
+        mode_path = Path(APP_ROOT) / "public" / "modes" / mode_name / "avatars"
+        if mode_path.exists():
+            base_path = mode_path
+
     avatar_pattern = f"{avatar_id}.*"
 
     matching_files = base_path.glob(avatar_pattern)
@@ -1759,7 +1791,7 @@ async def get_avatar(avatar_id: str):
 
         return FileResponse(avatar_path, media_type=media_type)
 
-    return await get_favicon()
+    return await get_favicon(request)
 
 
 @router.underlying.head("/")
@@ -1782,13 +1814,20 @@ async def serve(request: Request, full_path: str):
         return RedirectResponse(url=root_path, status_code=307)
     else:
         mode = get_mode(root_path, request.url.path)
+        mode_public_dir = f"{public_dir}/modes/{mode.name or mode.default_name}"
+        if not os.path.isdir(mode_public_dir):
+            # fallback for "default" behavior
+            mode_public_dir = public_dir
+
         if mode.path:
             root_path += f"/{mode.path}"
-            html_template = get_html_template(root_path)
+            config = get_mode_config(mode.name)
+            html_template = get_html_template(root_path, f"{mode_public_dir}", config=config)
             response = HTMLResponse(content=html_template, status_code=200)
             return response
         elif not mode.default_name:
-            html_template = get_html_template(root_path)
+            config = get_mode_config(mode.default_name)
+            html_template = get_html_template(root_path, f"{mode_public_dir}", config=config)
             response = HTMLResponse(content=html_template, status_code=200)
             return response
         else:

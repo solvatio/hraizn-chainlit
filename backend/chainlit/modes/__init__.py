@@ -3,8 +3,51 @@ import json
 import os
 from typing import Callable, Any
 
-from chainlit.config import config
+import tomli
+
+from chainlit.config import config, ChainlitConfig, APP_ROOT, ChainlitConfigOverrides, FeaturesSettings, \
+    UISettings
 from fastapi import APIRouter, Request
+
+def load_settings(config_file: str):
+    with open(config_file, "rb") as f:
+        toml_dict = tomli.load(f)
+        # Load project settings
+        features_settings = toml_dict.get("features", {})
+        ui_settings = toml_dict.get("UI", {})
+        features_settings = FeaturesSettings(**features_settings)
+        ui_settings = UISettings(**ui_settings)
+        return {
+            "features": features_settings,
+            "ui": ui_settings,
+        }
+
+def load_mode_configs() -> dict[str, ChainlitConfig]:
+    configs: dict[str, ChainlitConfig] = {}
+
+    modes_dir = os.path.join(APP_ROOT, ".chainlit", "modes")
+
+    if not os.path.isdir(modes_dir):
+        return configs
+
+    for mode_name in os.listdir(modes_dir):
+        mode_dir = os.path.join(modes_dir, mode_name)
+
+        if not os.path.isdir(mode_dir):
+            continue
+
+        config_path = os.path.join(mode_dir, "config.toml")
+
+        if not os.path.isfile(config_path):
+            continue
+
+        settings = load_settings(config_path)
+        mode_config = ChainlitConfigOverrides(**settings)
+        overridden: ChainlitConfig = config.with_overrides(mode_config)
+        configs[mode_name] = overridden
+
+    return configs
+
 
 @dataclasses.dataclass
 class Mode:
@@ -199,3 +242,10 @@ class ModeRouterWrapper:
     def put(self, path: str, *args, **kwargs): return self._wrap_method("put")(path, *args, **kwargs)
     def delete(self, path: str, *args, **kwargs): return self._wrap_method("delete")(path, *args, **kwargs)
     def patch(self, path: str, *args, **kwargs): return self._wrap_method("patch")(path, *args, **kwargs)
+
+mode_configs: dict[str, ChainlitConfig] = {}
+
+def get_mode_config(mode: str) -> ChainlitConfig:
+    if not mode:
+        return config
+    return mode_configs.get(mode) or config
