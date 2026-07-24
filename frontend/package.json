@@ -89,7 +89,7 @@
     "@vitejs/plugin-react": "^4.0.4",
     "@vitejs/plugin-react-swc": "^3.3.2",
     "autoprefixer": "^10.4.20",
-    "immutable": "^4.3.4",
+    "immutable": "^4.3.9",
     "jsdom": "^22.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
