@@ -1536,6 +1536,7 @@ async def upload_file(
     current_user: UserParam,
     session_id: str,
     file: UploadFile,
+    request: Request,
     ask_parent_id: Optional[str] = None,
 ):
     """Upload a file to the session files directory."""
@@ -1559,6 +1560,9 @@ async def upload_file(
 
     session.files_dir.mkdir(exist_ok=True)
 
+    mode = get_mode_from_request(request)
+    mode_config = get_mode_config(mode)
+
     try:
         content = await file.read()
 
@@ -1573,7 +1577,7 @@ async def upload_file(
             )
 
         try:
-            validate_file_upload(file, spec=spec)
+            validate_file_upload(file, spec=spec, config=mode_config)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -1594,13 +1598,14 @@ async def upload_file(
     finally:
         await file.close()
 
-def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None):
+def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None, config: ChainlitConfig = config):
     """Validate the file upload as configured in config.features.spontaneous_file_upload or by AskFileSpec
     for a specific message.
 
     Args:
         file (UploadFile): The file to validate.
         spec (AskFileSpec): The file spec to validate against if any.
+        cfg (ChainlitConfig): The config
     Raises:
         ValueError: If the file is not allowed.
     """
@@ -1611,11 +1616,11 @@ def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None):
     if not spec and not config.features.spontaneous_file_upload.enabled:
         raise ValueError("File upload is not enabled")
 
-    validate_file_mime_type(file, spec)
-    validate_file_size(file, spec)
+    validate_file_mime_type(file, spec, config)
+    validate_file_size(file, spec, config)
 
 
-def validate_file_mime_type(file: UploadFile, spec: Optional[AskFileSpec]):
+def validate_file_mime_type(file: UploadFile, spec: Optional[AskFileSpec], config: ChainlitConfig = config):
     """Validate the file mime type as configured in config.features.spontaneous_file_upload.
     Args:
         file (UploadFile): The file to validate.
@@ -1653,7 +1658,7 @@ def validate_file_mime_type(file: UploadFile, spec: Optional[AskFileSpec]):
     raise ValueError("File type not allowed")
 
 
-def validate_file_size(file: UploadFile, spec: Optional[AskFileSpec]):
+def validate_file_size(file: UploadFile, spec: Optional[AskFileSpec], config: ChainlitConfig = config):
     """Validate the file size as configured in config.features.spontaneous_file_upload.
     Args:
         file (UploadFile): The file to validate.
