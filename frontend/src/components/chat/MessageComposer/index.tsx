@@ -259,7 +259,7 @@ return (
                 <Button
                   type="button"
                   disabled={disabled}
-                  className="rounded-full hover:bg-foreground/10 hover:text-current"
+                  className="rounded-full text-accent-foreground hover:bg-foreground/10 hover:text-accent-foreground"
                   variant="ghost"
                   size="icon"
                   aria-label="Open media actions"
@@ -274,7 +274,7 @@ return (
               <DropdownMenuContent
                 align="end"
                 side="top"
-                className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+                className="relative left-1.5 mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
               >
                 <div className="flex flex-col gap-1">
                   {isWebcamFeatureEnabled && isWebcamAvailable ? (

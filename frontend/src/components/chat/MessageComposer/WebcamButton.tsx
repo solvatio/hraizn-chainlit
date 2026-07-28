@@ -106,7 +106,7 @@ export const WebcamToggleButton = ({
           disabled={disabled || isBusy}
           variant="ghost"
           size="icon"
-          className="hover:bg-foreground/10 hover:text-current"
+          className="text-accent-foreground hover:bg-foreground/10 hover:text-accent-foreground"
           onClick={onClick}
           aria-label={isEnabled ? 'Disable webcam' : 'Enable webcam'}
         >
