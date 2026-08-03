@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { hasMessage } from '@/lib/utils';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useSetRecoilState } from 'recoil';
+import { useRecoilValue, useSetRecoilState } from 'recoil';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 
 import {
+  sessionIdState,
   threadHistoryState,
   useAuth,
   useChatData,
@@ -54,6 +56,7 @@ const Chat = () => {
   const { config } = useConfig();
   const setAttachments = useSetRecoilState(attachmentsState);
   const setThreads = useSetRecoilState(threadHistoryState);
+  const sessionId = useRecoilValue(sessionIdState);
 
   const autoScrollRef = useRef(true);
   const { error, disabled, callFn } = useChatData();
@@ -212,7 +215,16 @@ const Chat = () => {
     options: { noClick: true }
   });
 
-  const { threadId } = useChatMessages();
+  const { messages, threadId } = useChatMessages();
+  const containsMessage = hasMessage(messages);
+  const [startedSessionId, setStartedSessionId] = useState<string>();
+  const hasChatStarted = containsMessage || startedSessionId === sessionId;
+
+  useEffect(() => {
+    if (containsMessage) {
+      setStartedSessionId(sessionId);
+    }
+  }, [containsMessage, sessionId]);
 
   useEffect(() => {
     const currentPage = new URL(window.location.href);
@@ -267,6 +279,7 @@ const Chat = () => {
           >
             <TaskList isMobile={true} />
             <WelcomeScreen
+              hasChatStarted={hasChatStarted}
               fileSpec={fileSpec}
               onFileUpload={onFileUpload}
               onFileUploadError={onFileUploadError}
@@ -282,6 +295,7 @@ const Chat = () => {
           }}
         >
           <ChatFooter
+            hasChatStarted={hasChatStarted}
             fileSpec={fileSpec}
             onFileUpload={onFileUpload}
             onFileUploadError={onFileUploadError}

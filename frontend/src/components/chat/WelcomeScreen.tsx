@@ -1,4 +1,4 @@
-import { cn, hasMessage } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import {
   MutableRefObject,
   useContext,
@@ -10,7 +10,6 @@ import {
 import {
   ChainlitContext,
   FileSpec,
-  useChatMessages,
   useChatSession,
   useConfig
 } from '@chainlit/react-client';
@@ -26,13 +25,13 @@ interface Props {
   onFileUpload: (payload: File[]) => void;
   onFileUploadError: (error: string) => void;
   autoScrollRef: MutableRefObject<boolean>;
+  hasChatStarted: boolean;
 }
 
-export default function WelcomeScreen(props: Props) {
+export default function WelcomeScreen({ hasChatStarted, ...props }: Props) {
   const apiClient = useContext(ChainlitContext);
   const { config } = useConfig();
   const { chatProfile } = useChatSession();
-  const { messages } = useChatMessages();
   const [isVisible, setIsVisible] = useState(false);
 
   const chatProfiles = config?.chatProfiles;
@@ -73,7 +72,7 @@ export default function WelcomeScreen(props: Props) {
     return <Logo className="w-[200px] mb-2" />;
   }, [chatProfiles, chatProfile]);
 
-  if (hasMessage(messages)) return null;
+  if (hasChatStarted) return null;
 
   return (
     <div
