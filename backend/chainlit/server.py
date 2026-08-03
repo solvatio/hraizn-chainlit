@@ -79,7 +79,8 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
-from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request, get_mode_config
+from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request, \
+    get_mode_config, mode_configs
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -258,7 +259,7 @@ app.add_middleware(SafariWebSocketsCompatibleGZipMiddleware)
 
 
 # config.run.root_path is only set when started with --root-path. Not on submounts.
-router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), modes=config.project.modes)
+router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), modes= list(mode_configs.keys()))
 
 
 @router.get("/public/{filename:path}")
@@ -491,7 +492,7 @@ def get_user_facing_url(url: URL):
 @router.get("/auth/config")
 async def auth(request: Request):
     mode_name = get_mode_from_request(request)
-    return get_configuration(mode=mode_name, config=get_mode_config(mode_name))
+    return get_configuration(mode=mode_name)
 
 
 def _get_response_dict(access_token: str) -> dict:

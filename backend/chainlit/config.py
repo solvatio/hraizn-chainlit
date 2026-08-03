@@ -416,11 +416,10 @@ class CodeSettings(BaseModel):
 
 class ProjectSettings(BaseModel):
     allow_origins: List[str] = Field(default_factory=lambda: ["*"])
-    modes: list[str] = Field(default_factory=lambda: [])
-    login_modes: list[str] = Field(default_factory=lambda: [])
-    password_auth_callback_modes: list[str] = Field(default_factory=lambda: [])
-    azure_oauth_callback_modes: list[str] = Field(default_factory=lambda: [])
-    anonymous_auth_callback_modes: list[str] = Field(default_factory=lambda: [])
+    login: bool = False
+    password_auth_callback: bool = False
+    azure_oauth_callback: bool = False
+    anonymous_auth_callback: bool = True
     # Socket.io client transports option
     transports: Optional[List[str]] = None
     # List of environment variables to be provided by each user to use the app. If empty, no environment variables will be asked to the user.

@@ -67,6 +67,8 @@ def run_chainlit(target: str):
 
     ws_protocol = os.environ.get("UVICORN_WS_PROTOCOL", "auto")
 
+    modes.mode_configs = modes.load_mode_configs()
+
     config.run.host = host
     config.run.port = port
     config.run.root_path = root_path
@@ -103,8 +105,6 @@ def run_chainlit(target: str):
         )
         server = uvicorn.Server(config)
         await server.serve()
-
-    modes.mode_configs = modes.load_mode_configs()
 
     # Run the asyncio event loop instead of uvloop to enable re entrance
     asyncio.run(start())

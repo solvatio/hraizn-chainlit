@@ -3,10 +3,11 @@ import json
 import os
 from typing import Callable, Any
 
+import socketio
 import tomli
 
 from chainlit.config import config, ChainlitConfig, APP_ROOT, ChainlitConfigOverrides, FeaturesSettings, \
-    UISettings
+    UISettings, ProjectSettings, reload_config
 from fastapi import APIRouter, Request
 
 def load_settings(config_file: str):
@@ -15,17 +16,21 @@ def load_settings(config_file: str):
         # Load project settings
         features_settings = toml_dict.get("features", {})
         ui_settings = toml_dict.get("UI", {})
+        project_settings = toml_dict.get("project", {})
         features_settings = FeaturesSettings(**features_settings)
         ui_settings = UISettings(**ui_settings)
+        project_settings = ProjectSettings(**project_settings)
         return {
             "features": features_settings,
             "ui": ui_settings,
+            "project": project_settings
         }
 
-def load_mode_configs() -> dict[str, ChainlitConfig]:
-    configs: dict[str, ChainlitConfig] = {}
+def load_mode_configs() -> dict[str, ChainlitConfigOverrides]:
+    configs: dict[str, ChainlitConfigOverrides] = {}
 
-    modes_dir = os.path.join(APP_ROOT, ".chainlit", "modes")
+    chainlit_dir = os.path.join(APP_ROOT, ".chainlit")
+    modes_dir = os.path.join(chainlit_dir, "modes")
 
     if not os.path.isdir(modes_dir):
         return configs
@@ -43,8 +48,7 @@ def load_mode_configs() -> dict[str, ChainlitConfig]:
 
         settings = load_settings(config_path)
         mode_config = ChainlitConfigOverrides(**settings)
-        overridden: ChainlitConfig = config.with_overrides(mode_config)
-        configs[mode_name] = overridden
+        configs[mode_name] = mode_config
 
     return configs
 
@@ -81,7 +85,7 @@ def _decode_params(params: str) -> dict|None:
 
 def get_mode_params_redirect(root_path: str, path: str, query:dict, modes: list[str]|None = None):
     if modes is None:
-        modes = config.project.modes
+        modes = list(mode_configs.keys())
     if not query:
         return None
     if not path.endswith("/context") and not path.endswith("/context/"):
@@ -104,7 +108,7 @@ def get_mode_from_user_session(user_session):
 
 def get_mode(root_path: str, path: str, modes: list[str] = None) -> Mode:
     if modes is None:
-        modes = config.project.modes
+        modes = list(mode_configs.keys())
 
     mode = None
     in_mode_params = False
@@ -243,9 +247,19 @@ class ModeRouterWrapper:
     def delete(self, path: str, *args, **kwargs): return self._wrap_method("delete")(path, *args, **kwargs)
     def patch(self, path: str, *args, **kwargs): return self._wrap_method("patch")(path, *args, **kwargs)
 
-mode_configs: dict[str, ChainlitConfig] = {}
+mode_configs: dict[str, ChainlitConfigOverrides] = {}
 
-def get_mode_config(mode: str) -> ChainlitConfig:
+def get_mode_config(mode: str|None) -> ChainlitConfig:
     if not mode:
         return config
-    return mode_configs.get(mode) or config
+    override = mode_configs.get(mode)
+    if override:
+        return config.with_overrides(override)
+    else:
+        return config
+
+async def reload(sio: socketio.AsyncServer):
+    #reload_config()
+    global mode_configs
+    mode_configs = load_mode_configs()
+    await sio.emit("reload", {})

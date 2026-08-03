@@ -2,7 +2,6 @@ import os
 
 from fastapi import Depends, HTTPException, Request
 
-from chainlit.config import config
 from chainlit.data import get_data_layer
 from chainlit.logger import logger
 from chainlit.oauth_providers import get_configured_oauth_providers
@@ -14,7 +13,7 @@ from .cookie import (
     set_auth_cookie,
 )
 from .jwt import create_jwt, decode_jwt, get_jwt_secret
-from chainlit.modes import get_mode_from_request
+from chainlit.modes import get_mode_from_request, mode_configs, get_mode_config
 
 reuseable_oauth = OAuth2PasswordBearerWithCookie(tokenUrl="/login", auto_error=False)
 
@@ -28,20 +27,16 @@ def ensure_jwt_secret():
 
 
 def is_oauth_enabled(mode: str = None):
+    mode_config = get_mode_config(mode)
     if mode:
-        return config.code.oauth_callback and len(get_configured_oauth_providers(mode)) > 0 and is_azure_oauth(mode)
-    return config.code.oauth_callback and len(get_configured_oauth_providers()) > 0
+        return mode_config.code.oauth_callback and len(get_configured_oauth_providers(mode)) > 0 and mode_config.project.azure_oauth_callback
+    return mode_config.code.oauth_callback and len(get_configured_oauth_providers()) > 0
 
-def is_password_auth(mode: str):
-    return mode in config.project.password_auth_callback_modes
-
-def is_azure_oauth(mode: str):
-    return mode in config.project.azure_oauth_callback_modes
-
-def require_login(mode: str = None):
-    if mode in config.project.login_modes:
+def require_login(mode: str|None = None):
+    config = get_mode_config(mode)
+    if config.project.login:
         return True
-    if config.project.modes:
+    if mode_configs:
         return False
     return (
         bool(os.environ.get("CHAINLIT_CUSTOM_AUTH"))
@@ -52,12 +47,13 @@ def require_login(mode: str = None):
 
 
 
-def get_configuration(mode: str, config = config):
+def get_configuration(mode: str):
+    config = get_mode_config(mode)
     return {
         "requireLogin": require_login(mode),
-        "passwordAuth": config.code.password_auth_callback is not None and is_password_auth(mode),
+        "passwordAuth": config.code.password_auth_callback is not None and config.project.password_auth_callback,
         "headerAuth": config.code.header_auth_callback is not None,
-        "anonymousAuth": mode in config.project.anonymous_auth_callback_modes,
+        "anonymousAuth": config.project.anonymous_auth_callback,
         "oauthProviders": get_configured_oauth_providers(mode) if is_oauth_enabled(mode) else [],
         "default_theme": config.ui.default_theme,
         "ui": {
