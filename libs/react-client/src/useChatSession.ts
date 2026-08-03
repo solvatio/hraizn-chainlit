@@ -205,6 +205,10 @@ const useChatSession = () => {
         window.location.reload();
       });
 
+      socket.on('reload_ui', () => {
+        window.location.reload();
+      });
+
       socket.on('audio_connection', async (state: 'on' | 'off') => {
         if (state === 'on') {
           let isFirstChunk = true;
