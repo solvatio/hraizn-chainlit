@@ -10,7 +10,7 @@ import urllib.parse
 import webbrowser
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import List, Optional, Union, cast
+from typing import List, Optional, Union, cast, Callable, Any
 
 import socketio
 from fastapi import (
@@ -79,8 +79,8 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
-from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request, \
-    get_mode_config, mode_configs
+from chainlit.modes import get_mode, get_mode_params_redirect, get_mode_from_request, \
+    get_mode_config, ModeRouter
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -259,7 +259,8 @@ app.add_middleware(SafariWebSocketsCompatibleGZipMiddleware)
 
 
 # config.run.root_path is only set when started with --root-path. Not on submounts.
-router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), modes= list(mode_configs.keys()))
+router = ModeRouter(router=APIRouter(prefix=config.run.root_path))
+
 
 
 @router.get("/public/{filename:path}")

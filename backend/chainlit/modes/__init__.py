@@ -170,82 +170,51 @@ def get_mode_from_request(request: Request):
     mode = get_mode(root_path=root_path, path=request.url.path)
     return mode.name
 
-class ModeRouterWrapper:
-    """
-    Wraps an existing APIRouter and registers routes under multiple profile prefixes.
-    It does NOT subclass APIRouter; it delegates to the provided router instance.
-    Usage:
-        router = APIRouter(prefix="/api")
-        wrapped = ProfileRouterWrapper(router, profiles=["selfcare", "agent"])
-        @wrapped.post("/teams/events")
-        async def teams_endpoint(...):
-            ...
-    """
+class ModeRouter:
+    def __init__(self, router: APIRouter):
+        self.underlying = router
 
-    def __init__(self, router: APIRouter, modes=None):
-        self.router = router
-        if modes is None:
-            modes = []
-        # normalize profiles to strings without leading/trailing slashes
-        self.modes = [str(p).strip("/") for p in modes]
+    @staticmethod
+    def get_mode_paths(base_path: str):
+        return [
+            base_path,
+            "/{mode}" + base_path,
+            "/{mode}/{context}" + base_path,
+            "/{mode}/m/{{variant}}" + base_path
+        ]
 
-    def _wrap_method(self, method_name: str) -> Callable[..., Callable]:
-        """
-        Return a decorator factory that registers the route on the underlying router
-        for the given method_name and also registers profile-prefixed versions.
-        """
-        def method(path: str, *args: Any, **kwargs: Any):
-            def decorator(func: Callable):
-                # Register the original route on the underlying router
-                if not self.modes:
-                    getattr(self.router, method_name)(path, *args, **kwargs)(func)
-                else:
-                    # Register each profile-prefixed route
-                    for mode in self.modes:
-                        # /agent/api
-                        prefixed_path = f"/{mode}{path}"
-                        getattr(self.router, method_name)(prefixed_path, *args, **kwargs)(func)
-                        # /agent/context/foobar/api
-                        mode_params_path = f"/{mode}/context/{{context}}{path}"
-                        getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
-                        # /agent/m/<variant>/api
-                        mode_params_variant_path = f"/{mode}/m/{{variant}}{path}"
-                        getattr(self.router, method_name)(mode_params_variant_path, *args, **kwargs)(func)
-                return func
-            return decorator
-        return method
+    def get(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.get(path)(func)
+            return func
 
-    # Common HTTP methods (including HEAD)
-    def get(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("get")(path, *args, **kwargs)
+        return decorator
 
-    def post(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("post")(path, *args, **kwargs)
+    def post(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.post(path)(func)
+            return func
 
-    def put(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("put")(path, *args, **kwargs)
+        return decorator
 
-    def delete(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("delete")(path, *args, **kwargs)
+    def put(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.put(path)(func)
+            return func
 
-    def patch(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("patch")(path, *args, **kwargs)
+        return decorator
 
-    def head(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("head")(path, *args, **kwargs)
+    def delete(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.delete(path)(func)
+            return func
 
-    # Optionally expose the underlying router for direct access
-    @property
-    def underlying(self) -> APIRouter:
-        return self.router
+        return decorator
 
-
-    # Define standard HTTP methods
-    def get(self, path: str, *args, **kwargs): return self._wrap_method("get")(path, *args, **kwargs)
-    def post(self, path: str, *args, **kwargs): return self._wrap_method("post")(path, *args, **kwargs)
-    def put(self, path: str, *args, **kwargs): return self._wrap_method("put")(path, *args, **kwargs)
-    def delete(self, path: str, *args, **kwargs): return self._wrap_method("delete")(path, *args, **kwargs)
-    def patch(self, path: str, *args, **kwargs): return self._wrap_method("patch")(path, *args, **kwargs)
 
 mode_configs: dict[str, ChainlitConfigOverrides] = {}
 
