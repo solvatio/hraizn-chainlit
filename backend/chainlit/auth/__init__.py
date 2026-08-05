@@ -34,8 +34,8 @@ def is_oauth_enabled(mode: str = None):
 
 def require_login(mode: str|None = None):
     config = get_mode_config(mode)
-    if config.project.login:
-        return True
+    if config.project.login is not None:
+        return config.project.login
     if mode_configs:
         return False
     return (

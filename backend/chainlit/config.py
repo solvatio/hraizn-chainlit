@@ -416,7 +416,7 @@ class CodeSettings(BaseModel):
 
 class ProjectSettings(BaseModel):
     allow_origins: List[str] = Field(default_factory=lambda: ["*"])
-    login: bool = False
+    login: Optional[bool] = None
     password_auth_callback: bool = False
     azure_oauth_callback: bool = False
     anonymous_auth_callback: bool = True
