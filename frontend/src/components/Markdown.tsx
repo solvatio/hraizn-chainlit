@@ -12,7 +12,6 @@ import { visit } from 'unist-util-visit';
 
 import { ChainlitContext, type IMessageElement } from '@chainlit/react-client';
 
-import { AspectRatio } from '@/components/ui/aspect-ratio';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -27,6 +26,7 @@ import {
 import BlinkingCursor from './BlinkingCursor';
 import CodeSnippet from './CodeSnippet';
 import { ElementRef } from './Elements/ElementRef';
+import { MarkdownImage } from './MarkdownImage';
 import {
   type AlertProps,
   MarkdownAlert,
@@ -158,23 +158,18 @@ const Markdown = ({
           }
         },
         img: (image: any) => {
+          if (!image.src) return null;
+
+          const src = image.src.startsWith('/public')
+            ? apiClient.buildEndpoint(image.src)
+            : image.src;
+
           return (
-            <div className="sm:max-w-sm md:max-w-md">
-              <AspectRatio
-                ratio={16 / 9}
-                className="bg-muted rounded-md overflow-hidden"
-              >
-                <img
-                  src={
-                    image.src.startsWith('/public')
-                      ? apiClient.buildEndpoint(image.src)
-                      : image.src
-                  }
-                  alt={image.alt}
-                  className="h-full w-full object-contain"
-                />
-              </AspectRatio>
-            </div>
+            <MarkdownImage
+              src={src}
+              alt={image.alt}
+              title={image.title}
+            />
           );
         },
         blockquote(props) {
