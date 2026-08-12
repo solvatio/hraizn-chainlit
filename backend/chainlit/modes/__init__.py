@@ -180,7 +180,7 @@ class ModeRouter:
             base_path,
             "/{mode}" + base_path,
             "/{mode}/{context}" + base_path,
-            "/{mode}/m/{{variant}}" + base_path
+            "/{mode}/m/{variant}" + base_path
         ]
 
     def get(self, base_path: str):
