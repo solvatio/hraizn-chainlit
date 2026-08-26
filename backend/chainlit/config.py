@@ -355,6 +355,8 @@ class UISettings(BaseModel):
     custom_build: Optional[str] = None
     # Optional header links
     header_links: Optional[List[HeaderLink]] = None
+    # Optional show welcome screen
+    welcome_screen: Optional[bool] = True
 
 
 class CodeSettings(BaseModel):

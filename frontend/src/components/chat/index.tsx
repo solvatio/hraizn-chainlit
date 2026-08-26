@@ -218,7 +218,9 @@ const Chat = () => {
   const { messages, threadId } = useChatMessages();
   const containsMessage = hasMessage(messages);
   const [startedSessionId, setStartedSessionId] = useState<string>();
-  const hasChatStarted = containsMessage || startedSessionId === sessionId;
+  const welcomeScreenEnabled = config?.ui.welcome_screen !== false;
+  const hasChatStarted =
+    !welcomeScreenEnabled || containsMessage || startedSessionId === sessionId;
 
   useEffect(() => {
     if (containsMessage) {
