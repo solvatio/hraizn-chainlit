@@ -206,7 +206,7 @@ const Markdown = ({
             <ul
               {...omit(props, ['node'])}
               className={cn(
-                'my-3 ml-3 list-disc pl-2',
+                'my-3 ml-3 list-disc pl-2 [&>li::marker]:text-inherit',
                 isWidget
                   ? '[&>li]:my-0 [&>li]:leading-5'
                   : '[&>li]:mt-1'
@@ -219,7 +219,7 @@ const Markdown = ({
             <ol
               {...omit(props, ['node'])}
               className={cn(
-                'my-3 ml-3 list-decimal pl-2',
+                'my-3 ml-3 list-decimal pl-2 [&>li::marker]:text-inherit',
                 isWidget
                   ? '[&>li]:my-0 [&>li]:leading-5'
                   : '[&>li]:mt-1'

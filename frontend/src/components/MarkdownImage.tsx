@@ -45,7 +45,7 @@ const MarkdownImage = ({ src, alt = '', title }: Props) => {
               alt={alt}
               title={title}
               loading="lazy"
-              className="h-full w-full object-contain"
+              className="m-0 block h-full w-full object-contain object-center"
             />
           </AspectRatio>
         </button>

@@ -8,6 +8,7 @@ import {
 } from '@chainlit/react-client';
 
 import BlinkingCursor from '@/components/BlinkingCursor';
+import { Translator } from 'components/i18n';
 
 import { Message } from './Message';
 
@@ -79,7 +80,16 @@ const Messages = memo(
                 ) : null}
                 {(showToolCoTLoader || showHiddenCoTLoader) &&
                 m.name !== 'on_chat_start' ? (
-                  <BlinkingCursor />
+                  <div
+                    className="flex items-center gap-2"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <BlinkingCursor />
+                    <span className="text-sm italic">
+                      <Translator path="chat.messages.status.thinking" />
+                    </span>
+                  </div>
                 ) : null}
               </React.Fragment>
             );
