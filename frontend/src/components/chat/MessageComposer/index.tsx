@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils';
 import {
   MutableRefObject,
   useCallback,
@@ -236,7 +237,12 @@ return (
             onPaste={onPaste}
             onEnter={submit}
             placeholder={t("chat.input.placeholder")}
-            className="min-h-10 py-2 leading-normal"
+            className={cn(
+              'min-h-10 py-2',
+              config?.widget === true
+                ? 'text-sm md:text-base leading-6'
+                : 'text-sm leading-normal'
+            )}
           />
         </div>
 

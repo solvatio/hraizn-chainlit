@@ -899,6 +899,7 @@ async def project_settings(
         if current_profile and getattr(current_profile, "config_overrides", None):
             cfg = config.with_overrides(current_profile.config_overrides)
 
+    is_widget = "/m/widget" in request.url.path
     return JSONResponse(
         content={
             "ui": cfg.ui.model_dump(),
@@ -916,6 +917,7 @@ async def project_settings(
             "chatProfiles": profiles,
             "starters": starters,
             "debugUrl": debug_url,
+            "widget": is_widget
         }
     )
 

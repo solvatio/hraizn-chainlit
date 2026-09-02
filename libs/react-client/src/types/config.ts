@@ -34,6 +34,7 @@ export interface IAuthConfig {
 }
 
 export interface IChainlitConfig {
+  widget?: boolean;
   markdown?: string;
   ui: {
     name: string;
