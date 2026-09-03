@@ -27,12 +27,15 @@ export default function AppWrapper() {
     window.location.pathname === basename + '/';
 
   function handleChangeLanguage(languageBundle: any): void {
+    if (!languageInUse) return;
     i18n.addResourceBundle(languageInUse, 'translation', languageBundle);
     i18n.changeLanguage(languageInUse);
   }
 
   const { data: translations } = useApi<any>(
-    `/project/translations?language=${languageInUse}`
+    languageInUse
+      ? `/project/translations?language=${languageInUse}`
+      : null
   );
 
   useEffect(() => {

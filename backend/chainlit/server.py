@@ -852,6 +852,17 @@ async def project_translations(
         }
     )
 
+@router.get("/project/language")
+async def project_settings(
+    request: Request,
+):
+    mode = get_mode_from_request(request)
+    cfg = get_mode_config(mode)
+    return JSONResponse(
+        content={
+            "primary_language": cfg.ui.primary_language
+        }
+    )
 
 @router.get("/project/settings")
 async def project_settings(

@@ -357,6 +357,8 @@ class UISettings(BaseModel):
     header_links: Optional[List[HeaderLink]] = None
     # Optional show welcome screen
     welcome_screen: Optional[bool] = True
+    # Optional show welcome screen
+    primary_language: Optional[str] = None
 
 
 class CodeSettings(BaseModel):
