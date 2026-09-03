@@ -85,6 +85,16 @@ export const loadingState = atom<boolean>({
   default: false
 });
 
+export interface IActiveProgress {
+  id: string;
+  text: string;
+}
+
+export const activeProgressState = atom<IActiveProgress[]>({
+  key: 'ActiveProgresses',
+  default: []
+});
+
 export const askUserState = atom<IAsk | undefined>({
   key: 'AskUser',
   default: undefined

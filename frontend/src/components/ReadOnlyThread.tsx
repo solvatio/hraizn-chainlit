@@ -155,6 +155,7 @@ const ReadOnlyThread = ({ id }: Props) => {
       latex: config?.features?.latex,
       editable: false,
       loading: false,
+      activeProgresses: [],
       showFeedbackButtons: !!config?.dataPersistence,
       uiName: config?.ui?.name || '',
       cot: config?.ui?.cot || 'hidden',

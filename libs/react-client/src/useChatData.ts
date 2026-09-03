@@ -1,6 +1,7 @@
 import { useRecoilValue } from 'recoil';
 
 import {
+  activeProgressState,
   actionState,
   askUserState,
   callFnState,
@@ -21,6 +22,7 @@ export interface IToken {
 }
 
 const useChatData = () => {
+  const activeProgresses = useRecoilValue(activeProgressState);
   const loading = useRecoilValue(loadingState);
   const elements = useRecoilValue(elementState);
   const tasklists = useRecoilValue(tasklistState);
@@ -43,6 +45,7 @@ const useChatData = () => {
     askUser?.spec.type === 'element';
 
   return {
+    activeProgresses,
     actions,
     askUser,
     callFn,

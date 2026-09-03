@@ -63,6 +63,8 @@ const Messages = memo(
             const showHiddenCoTLoader = isHiddenCoT
               ? isRunning && !hasAssistantMessage(m)
               : false;
+            const showActiveProgressesLoader =
+              isRunning && messageContext.activeProgresses.length > 0;
             // Ignore on_chat_start for scorable run
             const scorableRun =
               !isRunning && m.name !== 'on_chat_start' ? m : undefined;
@@ -78,7 +80,9 @@ const Messages = memo(
                     scorableRun={scorableRun}
                   />
                 ) : null}
-                {(showToolCoTLoader || showHiddenCoTLoader) &&
+                {(showToolCoTLoader ||
+                  showHiddenCoTLoader ||
+                  showActiveProgressesLoader) &&
                 m.name !== 'on_chat_start' ? (
                   <div
                     className="flex items-center gap-2"
@@ -86,8 +90,14 @@ const Messages = memo(
                     aria-live="polite"
                   >
                     <BlinkingCursor />
-                    <span className="text-sm italic">
-                      <Translator path="chat.messages.status.thinking" />
+                    <span className="flex flex-wrap gap-x-2 text-sm italic">
+                      {messageContext.activeProgresses.length ? (
+                        messageContext.activeProgresses.map((progress) => (
+                          <span key={progress.id}>{progress.text}</span>
+                        ))
+                      ) : (
+                        <Translator path="chat.messages.status.thinking" />
+                      )}
                     </span>
                   </div>
                 ) : null}

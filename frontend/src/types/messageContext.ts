@@ -5,6 +5,7 @@ import type {
   IMessageElement,
   IStep
 } from '@chainlit/react-client';
+import type { IActiveProgress } from '@chainlit/react-client';
 
 interface IMessageContext {
   uploadFile?: (
@@ -15,6 +16,7 @@ interface IMessageContext {
   askUser?: IAsk;
   editable: boolean;
   loading: boolean;
+  activeProgresses: IActiveProgress[];
   showFeedbackButtons: boolean;
   uiName: string;
   allowHtml?: boolean;
