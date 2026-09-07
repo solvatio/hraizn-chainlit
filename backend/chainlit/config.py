@@ -178,6 +178,9 @@ cot = "full"
 # The JavaScript file can be served from the public directory.
 # custom_js = "/public/test.js"
 
+# Specify a custom SVG image displayed while the assistant is thinking.
+# custom_thinking_image = "/public/thinking.svg"
+
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"
 
@@ -359,6 +362,8 @@ class UISettings(BaseModel):
     welcome_screen: Optional[bool] = True
     # Optional show welcome screen
     primary_language: Optional[str] = None
+    # Optional SVG image displayed while the assistant is thinking
+    custom_thinking_image: Optional[str] = None
 
 
 class CodeSettings(BaseModel):

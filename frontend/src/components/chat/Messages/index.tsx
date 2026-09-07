@@ -4,10 +4,12 @@ import React, { memo, useContext } from 'react';
 import {
   type IAction,
   type IMessageElement,
-  type IStep
+  type IStep,
+  useConfig
 } from '@chainlit/react-client';
 
 import BlinkingCursor from '@/components/BlinkingCursor';
+import ThinkingCursor from '@/components/ThinkingCursor';
 import { Translator } from 'components/i18n';
 
 import { Message } from './Message';
@@ -45,6 +47,7 @@ const hasAssistantMessage = (step: IStep): boolean => {
 const Messages = memo(
   ({ messages, elements, actions, indent, isRunning, scorableRun }: Props) => {
     const messageContext = useContext(MessageContext);
+    const { config } = useConfig();
     return (
       <>
         {messages.map((m) => {
@@ -89,7 +92,11 @@ const Messages = memo(
                     role="status"
                     aria-live="polite"
                   >
-                    <BlinkingCursor />
+                    {config?.ui.custom_thinking_image ? (
+                      <ThinkingCursor src={config.ui.custom_thinking_image} />
+                    ) : (
+                      <BlinkingCursor />
+                    )}
                     <span className="flex flex-wrap gap-x-2 text-sm italic">
                       {messageContext.activeProgresses.length ? (
                         messageContext.activeProgresses.map((progress) => (

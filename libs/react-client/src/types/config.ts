@@ -47,6 +47,7 @@ export interface IChainlitConfig {
     github?: string;
     custom_css?: string;
     custom_js?: string;
+    custom_thinking_image?: string;
     custom_font?: string;
     alert_style?: 'classic' | 'modern';
     login_page_image?: string;

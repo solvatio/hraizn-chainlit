@@ -125,6 +125,7 @@ async def test_project_settings(test_client: TestClient, mock_get_current_user: 
     data = response.json()
 
     assert "ui" in data
+    assert "custom_thinking_image" in data["ui"]
     assert "features" in data
     assert "userEnv" in data
     assert "dataPersistence" in data
