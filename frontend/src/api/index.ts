@@ -1,4 +1,5 @@
 import getRouterBasename from '@/lib/router';
+import { storeChatParametersForAuth } from '@/lib/chatParameters';
 import { toast } from 'sonner';
 
 import { ChainlitAPI, ClientError } from '@chainlit/react-client';
@@ -14,6 +15,7 @@ const httpEndpoint = serverUrl.toString();
 const on401 = () => {
   if (window.location.pathname !== getRouterBasename() + '/login') {
     // The credentials aren't correct, remove the token and redirect to login
+    storeChatParametersForAuth(window.location.search);
     window.location.href = getRouterBasename() + '/login';
   }
 };

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from itertools import islice
 from typing import Any, Dict, Literal, Optional, Tuple, TypedDict, Union
 from urllib.parse import unquote
 
@@ -31,10 +32,14 @@ from chainlit.user_session import user_sessions
 
 WSGIEnvironment: TypeAlias = dict[str, Any]
 
+MAX_CHAT_PARAMETERS = 8
+MAX_CHAT_PARAMETER_VALUE_LENGTH = 50
+
 
 class WebSocketSessionAuth(TypedDict):
     sessionId: str
     userEnv: str | None
+    chatParameters: str | None
     clientType: ClientType
     chatProfile: str | None
     threadId: str | None
@@ -93,6 +98,23 @@ def load_user_env(user_env):
                     "Missing user environment variable: " + key
                 )
     return user_env_dict
+
+
+def load_chat_parameters(chat_parameters: str | None) -> dict[str, str]:
+    if not chat_parameters:
+        return {}
+
+    parsed = json.loads(chat_parameters)
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in parsed.items()
+    ):
+        raise ConnectionRefusedError("Invalid chat parameters")
+
+    return {
+        key: value[:MAX_CHAT_PARAMETER_VALUE_LENGTH]
+        for key, value in islice(parsed.items(), MAX_CHAT_PARAMETERS)
+    }
 
 
 def _get_token_from_cookie(environ: WSGIEnvironment) -> Optional[str]:
@@ -162,7 +184,9 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
         return sio.call(event, data, timeout=timeout, to=sid)
 
     session_id = auth["sessionId"]
+    chat_parameters = load_chat_parameters(auth.get("chatParameters"))
     if restore_existing_session(sid, session_id, emit_fn, emit_call_fn):
+        WebsocketSession.require(sid).chat_parameters = chat_parameters
         return True
 
     user_env_string = auth.get("userEnv")
@@ -181,6 +205,7 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
         emit_call=emit_call_fn,
         client_type=client_type,
         user_env=user_env,
+        chat_parameters=chat_parameters,
         user=user,
         token=token,
         chat_profile=chat_profile,

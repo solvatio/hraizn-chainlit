@@ -1,4 +1,8 @@
 import { cn } from '@/lib/utils';
+import {
+  clearStoredChatParameters,
+  getChatParameters
+} from '@/lib/chatParameters';
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { useRecoilValue } from 'recoil';
@@ -29,7 +33,7 @@ function App() {
 
   const { isAuthenticated, data, isReady } = useAuth();
   const userEnv = useRecoilValue(userEnvState);
-  const { connect, chatProfile, setChatProfile } = useChatSession();
+  const { connect, session, chatProfile, setChatProfile } = useChatSession();
 
   const configLoaded = !!config;
 
@@ -46,9 +50,16 @@ function App() {
 
     connect({
       transports: window.transports,
-      userEnv
+      userEnv,
+      chatParameters: getChatParameters(window.location.search)
     });
   }, [userEnv, isAuthenticated, connect, isReady, chatProfileOk]);
+
+  useEffect(() => {
+    if (session?.socket.connected) {
+      clearStoredChatParameters();
+    }
+  }, [session]);
 
   useEffect(() => {
     if (

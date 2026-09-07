@@ -69,6 +69,8 @@ class BaseSession:
         environ: Optional[dict[str, Any]] = None,
         # Chat profile selected before the session was created
         chat_profile: Optional[str] = None,
+        # Parameters supplied by the chat page URL
+        chat_parameters: Optional[Dict[str, str]] = None,
     ):
         if thread_id:
             self.thread_id_to_resume = thread_id
@@ -80,6 +82,7 @@ class BaseSession:
         self.user_env = user_env or {}
         self.environ = environ or {}
         self.chat_profile = chat_profile
+        self.chat_parameters = chat_parameters or {}
 
         self.files: Dict[str, FileDict] = {}
         self.files_spec: Dict[str, AskFileSpec] = {}
@@ -239,6 +242,8 @@ class WebsocketSession(BaseSession):
         token: Optional[str] = None,
         # Chat profile selected before the session was created
         chat_profile: Optional[str] = None,
+        # Parameters supplied by the chat page URL
+        chat_parameters: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             id=id,
@@ -248,6 +253,7 @@ class WebsocketSession(BaseSession):
             user_env=user_env,
             client_type=client_type,
             chat_profile=chat_profile,
+            chat_parameters=chat_parameters,
             environ=environ,
         )
 

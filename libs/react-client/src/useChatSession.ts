@@ -101,10 +101,12 @@ const useChatSession = () => {
   const _connect = useCallback(
     async ({
       transports,
-      userEnv
+      userEnv,
+      chatParameters = {}
     }: {
       transports?: string[];
       userEnv: Record<string, string>;
+      chatParameters?: Record<string, string>;
     }) => {
       const { protocol, host, pathname } = new URL(client.httpEndpoint);
       const uri = `${protocol}//${host}`;
@@ -128,6 +130,7 @@ const useChatSession = () => {
           sessionId,
           threadId: idToResume || '',
           userEnv: JSON.stringify(userEnv),
+          chatParameters: JSON.stringify(chatParameters),
           chatProfile: chatProfile ? encodeURIComponent(chatProfile) : ''
         }
       });

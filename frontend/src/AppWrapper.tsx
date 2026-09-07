@@ -1,4 +1,5 @@
 import getRouterBasename from '@/lib/router';
+import { storeChatParametersForAuth } from '@/lib/chatParameters';
 import App from 'App';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -61,6 +62,7 @@ export default function AppWrapper() {
     window.location.pathname !== anonymousLoginPath &&
     window.location.pathname !== loginCallbackPath
   ) {
+    storeChatParametersForAuth(window.location.search);
     window.location.href =
       requireLogin && anonymousAuth && isRootPath ? anonymousLoginPath : loginPath;
   }

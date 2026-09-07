@@ -12,3 +12,6 @@ async def test_user_session_set_get(mock_chainlit_context, user_session):
         # Test getting session-related values
         assert user_session.get("id") == context.session.id
         assert user_session.get("env") == context.session.user_env
+        assert (
+            user_session.get("chatParameters") == context.session.chat_parameters
+        )
