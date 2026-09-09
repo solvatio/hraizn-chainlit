@@ -37,6 +37,10 @@ import {
   alertComponents,
   normalizeAlertType
 } from './MarkdownAlert';
+import {
+  MarkdownProductCard,
+  productCardComponents
+} from './MarkdownProductCard';
 
 interface Props {
   allowHtml?: boolean;
@@ -119,6 +123,7 @@ const Markdown = ({
       cursorPlugin,
       remarkGfm as any,
       remarkDirective as any,
+      MarkdownProductCard,
       MarkdownAlert
     ];
 
@@ -141,6 +146,7 @@ const Markdown = ({
       rehypePlugins={rehypePlugins}
       components={{
         ...alertComponents, // add alert components
+        ...productCardComponents,
         code(props) {
           return (
             <code
