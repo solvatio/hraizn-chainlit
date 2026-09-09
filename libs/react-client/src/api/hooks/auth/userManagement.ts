@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { IUser } from 'src/types';
 
 import { useApi } from '../api';
+import { isUnauthorizedError } from './errors';
 import { useAuthState } from './state';
 
 export const useUserManagement = () => {
@@ -20,7 +21,9 @@ export const useUserManagement = () => {
   }, [userData, setUser]);
 
   useEffect(() => {
-    if (error) {
+    // A temporary network or server failure does not invalidate the session.
+    // Only clear the user when the backend explicitly rejects the credentials.
+    if (isUnauthorizedError(error)) {
       setUser(null);
     }
   }, [error]);
