@@ -1,6 +1,7 @@
 const CHAT_PARAMETERS_STORAGE_KEY = 'chainlit:chatParameters';
 const MAX_CHAT_PARAMETERS = 8;
 const MAX_CHAT_PARAMETER_VALUE_LENGTH = 50;
+const MAX_HOST_ORIGIN_LENGTH = 300;
 
 type ChatParameters = Record<string, string>;
 
@@ -10,7 +11,12 @@ const sanitizeEntries = (entries: Iterable<[string, string]>): ChatParameters =>
       .slice(0, MAX_CHAT_PARAMETERS)
       .map(([key, value]) => [
         key,
-        value.slice(0, MAX_CHAT_PARAMETER_VALUE_LENGTH)
+        value.slice(
+          0,
+          ['hraiznHostOrigin', 'hraiznShopOrigin'].includes(key)
+            ? MAX_HOST_ORIGIN_LENGTH
+            : MAX_CHAT_PARAMETER_VALUE_LENGTH
+        )
       ])
   );
 
@@ -41,7 +47,8 @@ export const getChatParameters = (search: string): ChatParameters => {
     const stored = JSON.parse(
       sessionStorage.getItem(CHAT_PARAMETERS_STORAGE_KEY) || '{}'
     );
-    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored))
+      return {};
 
     return sanitizeEntries(
       Object.entries(stored).filter(

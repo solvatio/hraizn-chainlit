@@ -7,6 +7,7 @@ import {
   useSetRecoilState
 } from 'recoil';
 import io from 'socket.io-client';
+import { relayHostActionMessage, hostActionTransportDisconnected } from './hostActions';
 import { toast } from 'sonner';
 import {
   activeProgressState,
@@ -518,10 +519,13 @@ const useChatSession = () => {
       });
 
       socket.on('window_message', (data: any) => {
+        if (relayHostActionMessage(data)) return;
         if (window.parent) {
           window.parent.postMessage(data, '*');
         }
       });
+
+      socket.on('disconnect', hostActionTransportDisconnected);
 
       socket.on('toast', (data: { message: string; type: string }) => {
         if (!data.message) {

@@ -65,6 +65,7 @@ export interface IChainlitConfig {
     }[];
   };
   features: {
+    allowed_host_origins?: string[];
     spontaneous_file_upload?: {
       enabled?: boolean;
       max_size_mb?: number;

@@ -303,6 +303,8 @@ class McpFeature(BaseModel):
 
 
 class FeaturesSettings(BaseModel):
+    # The only host integration setting. Actions are negotiated with the parent.
+    allowed_host_origins: List[str] = Field(default_factory=list)
     spontaneous_file_upload: Optional[SpontaneousFileUploadFeature] = None
     audio: Optional[AudioFeature] = Field(default_factory=AudioFeature)
     webcam: Optional[WebcamFeature] = Field(default_factory=WebcamFeature)
