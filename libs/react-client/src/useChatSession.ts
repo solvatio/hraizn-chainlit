@@ -7,7 +7,7 @@ import {
   useSetRecoilState
 } from 'recoil';
 import io from 'socket.io-client';
-import { relayHostActionMessage, hostActionTransportDisconnected } from './hostActions';
+import { isHostMessage } from './hostActions';
 import { toast } from 'sonner';
 import {
   activeProgressState,
@@ -519,13 +519,13 @@ const useChatSession = () => {
       });
 
       socket.on('window_message', (data: any) => {
-        if (relayHostActionMessage(data)) return;
+        // Host actions run locally; stale server commands must never execute or
+        // escape through the legacy wildcard path.
+        if (isHostMessage(data)) return;
         if (window.parent) {
           window.parent.postMessage(data, '*');
         }
       });
-
-      socket.on('disconnect', hostActionTransportDisconnected);
 
       socket.on('toast', (data: { message: string; type: string }) => {
         if (!data.message) {

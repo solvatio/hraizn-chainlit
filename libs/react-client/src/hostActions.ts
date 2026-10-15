@@ -3,10 +3,30 @@ import type { Socket } from 'socket.io-client';
 
 export const HOST_CHANNEL = 'hraizn-host';
 export const HOST_TIMEOUT_MS = 35000;
+const MAX_REQUESTS = 128;
 const MAX_BYTES = 8192;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const NAME = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_.-]{0,48}$/;
+export const HOST_ACTION_DEFAULT_MESSAGES = {
+  'hostActions.success': 'The action was completed.',
+  'hostActions.checkBeforeRetry':
+    'Please check the page before trying this action again.',
+  'hostActions.failed':
+    'The action could not be completed. Please check the page.',
+  'hostActions.foreignLink': 'This action link does not belong to this chat.',
+  'hostActions.unavailable': 'This action is not available in this embedding.',
+  'hostActions.invalidLink': 'This action link is not valid.',
+  'hostActions.timeout': 'The action took too long.',
+  'hostActions.tooManyActions':
+    'Please reopen the chat before using another action.',
+  'hostActions.connectionLost': 'The connection was interrupted.'
+} as const;
+export type HostActionMessageKey = keyof typeof HOST_ACTION_DEFAULT_MESSAGES;
+export type HostActionTranslate = (
+  key: HostActionMessageKey,
+  defaultValue: string
+) => string;
 const record = (v: unknown): v is Record<string, any> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 export function boundedHostMessage(
@@ -32,7 +52,13 @@ export function sendHostSocketMessage(
   socket: Socket | undefined,
   data: unknown
 ) {
-  if (!socket?.connected || socket.io.engine?.transport?.writable !== true)
+  if (
+    !boundedHostMessage(data) ||
+    !isHostMessage(data) ||
+    data.type !== 'telemetry' ||
+    !socket?.connected ||
+    socket.io.engine?.transport?.writable !== true
+  )
     return false;
   socket.volatile.emit('window_message', data);
   return true;
@@ -42,6 +68,7 @@ type Pending = {
   link: HTMLAnchorElement;
   action: string;
   mutating: boolean;
+  issuedAt: number;
   expiresAt: number;
   timer: number;
   forwarded: boolean;
@@ -71,6 +98,7 @@ export class HostActionBridge {
   readonly parentOrigin: string | null;
   private actions = new Map<string, Action>();
   private pending = new Map<string, Pending>();
+  private requests = new Set<string>();
   private uncertain = false;
   private ready = false;
 
@@ -79,7 +107,9 @@ export class HostActionBridge {
     private doc: Document,
     origins: string[],
     private rootPath: string,
-    private send: (data: any) => boolean
+    private sendTelemetry: (data: any) => boolean,
+    private translate: HostActionTranslate = (_key, defaultValue) =>
+      defaultValue
   ) {
     this.handshakeId = win.crypto.randomUUID();
     const query = new URL(win.location.href).searchParams;
@@ -116,7 +146,7 @@ export class HostActionBridge {
       ...data
     };
   }
-  private announce(link: HTMLAnchorElement, message: string) {
+  private announce(link: HTMLAnchorElement, message: HostActionMessageKey) {
     const container = link.parentElement;
     if (!container) return;
     let status = container.querySelector<HTMLElement>(
@@ -129,9 +159,17 @@ export class HostActionBridge {
       status.setAttribute('aria-live', 'polite');
       container.appendChild(status);
     }
-    status.textContent = message;
+    status.textContent = this.translate(
+      message,
+      HOST_ACTION_DEFAULT_MESSAGES[message]
+    );
   }
-  private finish(id: string, success: boolean, message: string) {
+  private finish(
+    id: string,
+    success: boolean,
+    message: HostActionMessageKey,
+    code: string
+  ) {
     const entry = this.pending.get(id);
     if (!entry) return;
     this.pending.delete(id);
@@ -142,6 +180,21 @@ export class HostActionBridge {
     entry.link.removeAttribute('aria-busy');
     entry.link.removeAttribute('aria-disabled');
     this.announce(entry.link, message);
+    // Report only after local completion. No delivery/acknowledgement is needed.
+    const telemetry = this.envelope({
+      type: 'telemetry',
+      requestId: id,
+      hostOrigin: this.parentOrigin,
+      action: entry.action,
+      durationMs: Math.max(0, Date.now() - entry.issuedAt),
+      success,
+      code
+    });
+    void Promise.resolve()
+      .then(() => this.sendTelemetry(telemetry))
+      .catch(() => {
+        // Best effort: telemetry failures must never alter a host action.
+      });
   }
   private receive = (event: MessageEvent) => {
     const message = event.data;
@@ -176,18 +229,11 @@ export class HostActionBridge {
         message.requestId,
         success,
         success
-          ? 'Die Aktion wurde ausgeführt.'
+          ? 'hostActions.success'
           : this.uncertain
-          ? 'Bitte prüfen Sie die Shopseite, bevor Sie die Aktion erneut ausführen.'
-          : 'Die Aktion konnte nicht ausgeführt werden. Bitte prüfen Sie die Shopseite.'
-      );
-      this.send(
-        this.envelope({
-          type: 'result',
-          requestId: message.requestId,
-          success,
-          code: message.code
-        })
+          ? 'hostActions.checkBeforeRetry'
+          : 'hostActions.failed',
+        message.code
       );
     }
   };
@@ -224,7 +270,7 @@ export class HostActionBridge {
         url.pathname.replace(/\/$/, '')
       )
     ) {
-      this.announce(link, 'Dieser Aktionslink gehört nicht zu diesem Chat.');
+      this.announce(link, 'hostActions.foreignLink');
       return;
     }
     const reference = url.hash.slice('#action/'.length);
@@ -240,10 +286,7 @@ export class HostActionBridge {
       !action ||
       this.win.parent === this.win
     ) {
-      this.announce(
-        link,
-        'Diese Aktion ist in dieser Einbettung nicht verfügbar.'
-      );
+      this.announce(link, 'hostActions.unavailable');
       return;
     }
     const parameters: Record<string, string> = Object.create(null);
@@ -255,7 +298,7 @@ export class HostActionBridge {
         value.length > 512 ||
         Object.prototype.hasOwnProperty.call(parameters, key)
       ) {
-        this.announce(link, 'Dieser Aktionslink ist nicht gültig.');
+        this.announce(link, 'hostActions.invalidLink');
         return;
       }
       parameters[key] = value;
@@ -265,37 +308,48 @@ export class HostActionBridge {
       (this.uncertain ||
         Array.from(this.pending.values()).some((p) => p.mutating))
     ) {
-      this.announce(
-        link,
-        'Bitte prüfen Sie zuerst die Shopseite, bevor Sie erneut ausführen.'
-      );
+      this.announce(link, 'hostActions.checkBeforeRetry');
       return;
     }
     const requestId = this.win.crypto.randomUUID();
     const issuedAt = Date.now(),
       expiresAt = issuedAt + HOST_TIMEOUT_MS;
+    const request = this.envelope({
+      type: 'request',
+      requestId,
+      issuedAt,
+      expiresAt,
+      data: { type: name, parameters }
+    });
+    if (
+      !UUID.test(requestId) ||
+      this.requests.has(requestId) ||
+      !boundedHostMessage(request)
+    ) {
+      this.announce(link, 'hostActions.invalidLink');
+      return;
+    }
+    if (this.requests.size >= MAX_REQUESTS) {
+      this.announce(link, 'hostActions.tooManyActions');
+      return;
+    }
+    this.requests.add(requestId);
     const timer = this.win.setTimeout(() => {
       if (action.mutating) this.uncertain = true;
       this.finish(
         requestId,
         false,
         action.mutating
-          ? 'Bitte prüfen Sie die Shopseite, bevor Sie erneut ausführen.'
-          : 'Die Aktion hat zu lange gedauert.'
-      );
-      this.send(
-        this.envelope({
-          type: 'result',
-          requestId,
-          success: false,
-          code: 'TIMEOUT'
-        })
+          ? 'hostActions.checkBeforeRetry'
+          : 'hostActions.timeout',
+        'TIMEOUT'
       );
     }, HOST_TIMEOUT_MS);
     this.pending.set(requestId, {
       link,
       action: name,
       mutating: action.mutating,
+      issuedAt,
       expiresAt,
       timer,
       forwarded: false
@@ -307,87 +361,37 @@ export class HostActionBridge {
     link.classList.add('hraizn-action-link-pending');
     link.setAttribute('aria-busy', 'true');
     link.setAttribute('aria-disabled', 'true');
-    if (
-      !this.send(
-        this.envelope({
-          type: 'request',
-          requestId,
-          issuedAt,
-          expiresAt,
-          registration: {
-            hostOrigin: this.parentOrigin,
-            actions: Array.from(this.actions.values())
-          },
-          data: { type: name, parameters }
-        })
-      )
-    ) {
+    const entry = this.pending.get(requestId)!;
+    if (Date.now() >= expiresAt) {
+      this.finish(requestId, false, 'hostActions.timeout', 'EXPIRED');
+      return;
+    }
+    entry.forwarded = true;
+    try {
+      this.win.parent.postMessage(request, this.parentOrigin);
+    } catch {
+      if (action.mutating) this.uncertain = true;
       this.finish(
         requestId,
         false,
-        'Die Verbindung ist gerade nicht bereit. Bitte versuchen Sie es erneut.'
+        action.mutating ? 'hostActions.checkBeforeRetry' : 'hostActions.failed',
+        'DISPATCH_FAILED'
       );
     }
   };
-
-  relay(message: unknown) {
-    if (
-      !boundedHostMessage(message) ||
-      message.version !== 1 ||
-      message.handshakeId !== this.handshakeId
-    )
-      return;
-    if (
-      message.source === 'hraizn-relay' &&
-      message.type === 'rejected' &&
-      message.code === 'ACTION_REJECTED'
-    ) {
-      const entry = this.pending.get(message.requestId);
-      if (entry && !entry.forwarded)
-        this.finish(
-          message.requestId,
-          false,
-          'Diese Aktion konnte nicht weitergeleitet werden. Bitte öffnen Sie den Chat erneut.'
-        );
-      return;
-    }
-    if (
-      message.source !== 'hraizn-chat' ||
-      message.version !== 1 ||
-      message.handshakeId !== this.handshakeId ||
-      message.type !== 'request' ||
-      !this.parentOrigin ||
-      !this.ready
-    )
-      return;
-    const entry = this.pending.get(message.requestId);
-    if (
-      !entry ||
-      entry.forwarded ||
-      message.expiresAt !== entry.expiresAt ||
-      Date.now() >= entry.expiresAt ||
-      !record(message.data) ||
-      message.data.type !== entry.action
-    )
-      return;
-    entry.forwarded = true;
-    this.win.parent.postMessage(message, this.parentOrigin);
-  }
-  transportDisconnected() {
+  dispose() {
     for (const [id, entry] of this.pending) {
-      // A request emitted towards the server may already have reached the shop.
+      // Disposing the controller does not undo an action already sent to the host.
       if (entry.mutating) this.uncertain = true;
       this.finish(
         id,
         false,
         entry.mutating
-          ? 'Bitte prüfen Sie die Shopseite, bevor Sie erneut ausführen.'
-          : 'Die Verbindung wurde unterbrochen.'
+          ? 'hostActions.checkBeforeRetry'
+          : 'hostActions.connectionLost',
+        'CANCELLED'
       );
     }
-  }
-  dispose() {
-    this.transportDisconnected();
     this.win.removeEventListener('message', this.receive);
     this.doc.removeEventListener('click', this.click);
   }
@@ -399,21 +403,21 @@ export function installHostActions(
   doc: Document,
   origins: string[],
   rootPath: string,
-  send: (data: any) => boolean
+  send: (data: any) => boolean,
+  translate?: HostActionTranslate
 ) {
   activeBridge?.dispose();
-  activeBridge = new HostActionBridge(win, doc, origins, rootPath, send);
+  activeBridge = new HostActionBridge(
+    win,
+    doc,
+    origins,
+    rootPath,
+    send,
+    translate
+  );
   const bridge = activeBridge;
   return () => {
     bridge.dispose();
     if (activeBridge === bridge) activeBridge = undefined;
   };
-}
-export function relayHostActionMessage(message: unknown) {
-  if (!isHostMessage(message)) return false;
-  activeBridge?.relay(message);
-  return true; // Never leak protected messages through the legacy wildcard path.
-}
-export function hostActionTransportDisconnected() {
-  activeBridge?.transportDisconnected();
 }

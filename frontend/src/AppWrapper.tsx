@@ -16,10 +16,13 @@ export default function AppWrapper() {
   const [translationLoaded, setTranslationLoaded] = useState(false);
   const { data: authConfig, isAuthenticated, isReady } = useAuth();
   const { language: languageInUse, config } = useConfig();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { windowMessage } = useChatInteract();
   const sendRef = useRef(windowMessage);
   sendRef.current = windowMessage;
+  // Language changes must not reset the handshake or pending action guards.
+  const translateRef = useRef(t);
+  translateRef.current = t;
   const basename = getRouterBasename();
   const loginPath = basename + '/login';
   const anonymousLoginPath = basename + '/login-anon';
@@ -62,8 +65,13 @@ export default function AppWrapper() {
   useEffect(() => {
     const origins: string[] = JSON.parse(originsKey);
     if (!config?.widget || !origins.length) return;
-    return installHostActions(window, document, origins, basename, (data) =>
-      sendRef.current(data)
+    return installHostActions(
+      window,
+      document,
+      origins,
+      basename,
+      (data) => sendRef.current(data),
+      (key, defaultValue) => translateRef.current(key, { defaultValue })
     );
   }, [originsKey, config?.widget, basename]);
 
