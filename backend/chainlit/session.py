@@ -162,6 +162,9 @@ class BaseSession:
             # Remove user environment variables (API keys) before persisting to database
             user_session_copy["env"] = {}
 
+        if config.code.on_persist_session:
+            config.code.on_persist_session(user_session_copy)
+
         metadata = clean_metadata(user_session_copy)
         return metadata
 

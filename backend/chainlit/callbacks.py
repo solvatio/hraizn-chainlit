@@ -81,6 +81,15 @@ def on_session_delete(
     config.code.on_session_delete = wrap_user_function(func, with_task=False)
     return func
 
+
+def on_persist_session(
+    func: Callable[[Dict[str, Any]], None],
+) -> Callable:
+    """Register a hook that can modify a session copy before persistence."""
+    config.code.on_persist_session = func
+    return func
+
+
 def password_auth_callback(
     func: Callable[[str, str], Awaitable[Optional[User]]],
 ) -> Callable:

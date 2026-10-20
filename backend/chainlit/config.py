@@ -385,6 +385,7 @@ class CodeSettings(BaseModel):
     on_chat_start: Optional[Callable[[], Any]] = None
     on_chat_end: Optional[Callable[[], Any]] = None
     on_session_delete: Optional[Callable[[str], Any]] = None
+    on_persist_session: Optional[Callable[[Dict[str, Any]], None]] = None
     on_chat_resume: Optional[Callable[["ThreadDict"], Any]] = None
     on_message: Optional[Callable[["Message"], Any]] = None
     on_feedback: Optional[Callable[["Feedback"], Any]] = None
