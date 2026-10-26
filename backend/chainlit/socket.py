@@ -117,6 +117,23 @@ def load_chat_parameters(chat_parameters: str | None) -> dict[str, str]:
     }
 
 
+def _store_start_parameters_for_new_thread(
+    session_id: str,
+    thread_id: str | None,
+    chat_parameters: dict[str, str],
+) -> None:
+    """Store a separate snapshot of the parameters that started a new thread."""
+    if thread_id:
+        # A resumed thread restores its original start parameters from persisted
+        # metadata; parameters from the current URL must not replace them.
+        return
+
+    session_values = user_sessions.setdefault(session_id, {})
+    # Keep the first snapshot if this function is ever reached more than once for
+    # a session, and copy it so later chat-parameter updates cannot mutate it.
+    session_values.setdefault("start_parameters", dict(chat_parameters))
+
+
 def _get_token_from_cookie(environ: WSGIEnvironment) -> Optional[str]:
     if cookie_header := environ.get("HTTP_COOKIE", None):
         cookies = cookie_parser(cookie_header)
@@ -186,6 +203,8 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
     session_id = auth["sessionId"]
     chat_parameters = load_chat_parameters(auth.get("chatParameters"))
     if restore_existing_session(sid, session_id, emit_fn, emit_call_fn):
+        # chat_parameters describe the current connection and may change on a
+        # reconnect. start_parameters remain the snapshot from thread creation.
         WebsocketSession.require(sid).chat_parameters = chat_parameters
         return True
 
@@ -198,7 +217,7 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
         unquote(url_encoded_chat_profile) if url_encoded_chat_profile else None
     )
 
-    WebsocketSession(
+    session = WebsocketSession(
         id=session_id,
         socket_id=sid,
         emit=emit_fn,
@@ -211,6 +230,11 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
         chat_profile=chat_profile,
         thread_id=thread_id,
         environ=environ,
+    )
+    _store_start_parameters_for_new_thread(
+        session.id,
+        thread_id,
+        chat_parameters,
     )
 
     return True
