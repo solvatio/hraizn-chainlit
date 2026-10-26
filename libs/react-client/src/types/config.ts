@@ -79,6 +79,7 @@ export interface IChainlitConfig {
     latex?: boolean;
     edit_message?: boolean;
     feedback?: boolean;
+    thread_history?: boolean;
     mcp?: {
       enabled?: boolean;
       sse?: {
