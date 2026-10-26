@@ -78,6 +78,7 @@ export interface IChainlitConfig {
     user_message_autoscroll?: boolean;
     latex?: boolean;
     edit_message?: boolean;
+    feedback?: boolean;
     mcp?: {
       enabled?: boolean;
       sse?: {

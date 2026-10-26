@@ -105,6 +105,9 @@ auto_tag_thread = true
 # Allow users to edit their own messages
 edit_message = true
 
+# Allow users to leave feedback on messages when data persistence is enabled
+feedback = true
+
 # Allow users to share threads (backend + UI). Requires an app-defined on_shared_thread_view callback.
 allow_thread_sharing = false
 
@@ -315,6 +318,7 @@ class FeaturesSettings(BaseModel):
     unsafe_allow_html: bool = False
     auto_tag_thread: bool = True
     edit_message: bool = True
+    feedback: bool = True
     allow_thread_sharing: bool = False
 
 

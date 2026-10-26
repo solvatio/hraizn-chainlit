@@ -115,7 +115,8 @@ const MessagesContainer = ({ navigate }: Props) => {
 
   const onError = useCallback((error: string) => toast.error(error), [toast]);
 
-  const enableFeedback = !!config?.dataPersistence;
+  const enableFeedback =
+    !!config?.dataPersistence && config?.features?.feedback !== false;
 
   // Memoize the context object since it's created on each render.
   // This prevents unnecessary re-renders of children components when no props have changed.
