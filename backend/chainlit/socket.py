@@ -188,7 +188,13 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
                 logger.error("Data layer is not initialized.")
                 raise ConnectionRefusedError("data layer not initialized")
 
-            if not (await data_layer.get_thread_author(thread_id) == user.identifier):
+            try:
+                author = await data_layer.get_thread_author(thread_id)
+            except Exception as e:
+                logger.exception("Problem resuming thread: thread_id=%s", thread_id)
+                raise ConnectionRefusedError("thread not found")
+
+            if not (author == user.identifier):
                 logger.error("Authorization for the thread failed.")
                 raise ConnectionRefusedError("authorization failed")
 
