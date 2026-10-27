@@ -1,10 +1,12 @@
-from unittest.mock import MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from chainlit.element import ElementDict
 from chainlit.emitter import ChainlitEmitter
 from chainlit.step import StepDict
+from chainlit.user import PersistedUser, User
 
 
 @pytest.fixture
@@ -92,6 +94,46 @@ async def test_send_timeout(emitter, mock_websocket_session):
 async def test_clear(emitter, mock_websocket_session):
     await emitter.clear("clear_ask")
     mock_websocket_session.emit.assert_called_once_with("clear_ask", {})
+
+
+async def test_first_interaction_persists_user_before_thread(
+    emitter: ChainlitEmitter,
+    mock_websocket_session: MagicMock,
+    mock_data_layer: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    user = User(
+        identifier="new-user",
+        display_name="New User",
+    )
+    persisted_user = PersistedUser(
+        id="persisted-user-id",
+        createdAt="2026-10-27T08:00:00Z",
+        identifier=user.identifier,
+    )
+    mock_websocket_session.user = user
+    mock_websocket_session.thread_id = "thread-id"
+    mock_websocket_session.chat_profile = None
+    mock_websocket_session.flush_method_queue = AsyncMock()
+    mock_data_layer.get_user.return_value = None
+    mock_data_layer.create_user.return_value = persisted_user
+    monkeypatch.setattr(
+        "chainlit.emitter.get_data_layer", lambda: mock_data_layer
+    )
+
+    await emitter.flush_thread_queues("Hello")
+    await asyncio.sleep(0)
+
+    mock_data_layer.get_user.assert_awaited_once_with(user.identifier)
+    mock_data_layer.create_user.assert_awaited_once_with(user)
+    mock_data_layer.update_thread.assert_awaited_once_with(
+        thread_id="thread-id",
+        name="Hello",
+        user_id=persisted_user.id,
+        tags=None,
+    )
+    assert mock_websocket_session.user is persisted_user
+    assert persisted_user.display_name == user.display_name
 
 
 async def test_send_token(

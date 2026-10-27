@@ -78,14 +78,16 @@ async def authenticate_user(mode_name: str = None, token: str = Depends(reuseabl
         )
 
     if data_layer := get_data_layer():
-        # Get or create persistent user if we've a data layer available.
+        # Resolve an existing persistent user, but do not create one during
+        # authentication. New users are persisted lazily with their first
+        # interaction so merely opening the chat does not create user data.
         try:
             persisted_user = await data_layer.get_user(user.identifier)
-            if persisted_user is None:
-                persisted_user = await data_layer.create_user(user)
-                assert persisted_user
         except Exception as e:
             logger.exception("Unable to get persisted_user from data layer: %s", e)
+            return user
+
+        if persisted_user is None:
             return user
 
         if user and user.display_name:

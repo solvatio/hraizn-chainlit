@@ -14,9 +14,9 @@ from chainlit.config import (
     ChainlitConfig,
     SpontaneousFileUploadFeature,
 )
-from chainlit.server import app, get_root_path_url
-from chainlit.types import AskFileSpec
-from chainlit.user import PersistedUser
+from chainlit.server import app, get_root_path_url, get_user_threads
+from chainlit.types import AskFileSpec, GetThreadsRequest, Pagination, ThreadFilter
+from chainlit.user import PersistedUser, User
 
 
 @pytest.fixture
@@ -49,6 +49,28 @@ def test_get_root_path_url_keeps_already_prefixed_url():
     url = "/Customer-Selfcare/favicon"
 
     assert get_root_path_url("/Customer-Selfcare", url) == url
+
+
+async def test_get_user_threads_returns_empty_page_for_unpersisted_user(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    data_layer = AsyncMock()
+    data_layer.get_user.return_value = None
+    monkeypatch.setattr("chainlit.server.get_data_layer", lambda: data_layer)
+    user = User(identifier="new-user")
+    payload = GetThreadsRequest(
+        pagination=Pagination(first=20),
+        filter=ThreadFilter(),
+    )
+
+    response = await get_user_threads(Mock(), payload, user)
+
+    assert response.status_code == 200
+    assert response.body == (
+        b'{"pageInfo":{"hasNextPage":false,"startCursor":null,'
+        b'"endCursor":null},"data":[]}'
+    )
+    data_layer.list_threads.assert_not_awaited()
 
 
 def test_project_translations_default_language(
