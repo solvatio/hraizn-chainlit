@@ -95,12 +95,17 @@ export function parseHostActions(actions: unknown): Action[] | null {
 
 export class HostActionBridge {
   readonly handshakeId: string;
-  readonly parentOrigin: string | null;
+  private boundOrigin: string | null = null;
+  private readonly allowedOrigins: ReadonlySet<string>;
   private actions = new Map<string, Action>();
   private pending = new Map<string, Pending>();
   private requests = new Set<string>();
   private uncertain = false;
   private ready = false;
+
+  get parentOrigin(): string | null {
+    return this.boundOrigin;
+  }
 
   constructor(
     private win: Window,
@@ -112,29 +117,17 @@ export class HostActionBridge {
       defaultValue
   ) {
     this.handshakeId = win.crypto.randomUUID();
-    const query = new URL(win.location.href).searchParams;
-    let candidate =
-      query.get('hraiznHostOrigin') || query.get('hraiznShopOrigin');
-    if (!candidate && doc.referrer) {
-      try {
-        candidate = new URL(doc.referrer).origin;
-      } catch {
-        /* No trust from invalid referrer. */
-      }
-    }
-    this.parentOrigin =
-      candidate && origins.includes(candidate) ? candidate : null;
+    this.allowedOrigins = new Set(origins);
     win.addEventListener('message', this.receive);
     doc.addEventListener('click', this.click);
     this.hello();
   }
 
   private hello() {
-    if (this.parentOrigin && this.win.parent !== this.win) {
-      this.win.parent.postMessage(
-        this.envelope({ type: 'hello' }),
-        this.parentOrigin
-      );
+    if (this.allowedOrigins.size && this.win.parent !== this.win) {
+      // Discovery only: no actions, product data or credentials are sent here.
+      // The parent is bound only after an allowlisted, nonce-matching ready.
+      this.win.parent.postMessage(this.envelope({ type: 'hello' }), '*');
     }
   }
   private envelope(data: Record<string, unknown>) {
@@ -199,8 +192,9 @@ export class HostActionBridge {
   private receive = (event: MessageEvent) => {
     const message = event.data;
     if (
+      this.win.parent === this.win ||
       event.source !== this.win.parent ||
-      event.origin !== this.parentOrigin ||
+      !this.allowedOrigins.has(event.origin) ||
       !boundedHostMessage(message) ||
       message.source !== 'hraizn-host' ||
       message.channel !== HOST_CHANNEL ||
@@ -211,9 +205,12 @@ export class HostActionBridge {
     if (message.type === 'ready' && !this.ready) {
       const actions = parseHostActions(message.actions);
       if (!actions) return;
+      this.boundOrigin = event.origin;
       this.actions = new Map(actions.map((a) => [a.name, a]));
       this.ready = true;
     } else if (
+      this.ready &&
+      event.origin === this.parentOrigin &&
       message.type === 'response' &&
       UUID.test(message.requestId) &&
       typeof message.success === 'boolean' &&

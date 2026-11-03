@@ -5,7 +5,7 @@ import {
   getChatParameters,
   getChatParametersFromSearch,
   storeChatParametersForAuth
-} from 'lib/chatParameters';
+} from '../src/lib/chatParameters';
 
 describe('chat parameters', () => {
   beforeEach(() => sessionStorage.clear());

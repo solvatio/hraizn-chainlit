@@ -7,7 +7,8 @@ const shop = 'https://shop.example';
 global.Element = class {};
 const flushTelemetry = async () => {await Promise.resolve(); await Promise.resolve();};
 
-function fixture({origin = shop, href = '#action/cart.add?productNumber=3356-221', connected = true, standalone = false, translate, telemetryFailure} = {}) {
+function fixture({origin = shop, href = '#action/cart.add?productNumber=3356-221', connected = true, standalone = false, translate, telemetryFailure,
+    query = '', referrer = '', allowedOrigins = [shop], rootPath = '/example/m/widget'} = {}) {
     const messages = [], socket = [], handlers = new Map(), timers = new Map(), names = new Set();
     let count = 0, timerId = 0, status;
     const parent = {postMessage: (data, destination) => messages.push({data, destination})};
@@ -18,20 +19,20 @@ function fixture({origin = shop, href = '#action/cart.add?productNumber=3356-221
             remove: (...keys) => keys.forEach(k => names.delete(k)), toggle: (k, on) => on ? names.add(k) : names.delete(k)},
         setAttribute: (k, v) => {attributes[k] = v;}, removeAttribute: k => {delete attributes[k];},
         parentElement: {querySelector: () => status, appendChild: item => {status = item;}}});
-    const win = {location: new URL('https://chat.example/example/m/widget?hraiznHostOrigin=' + encodeURIComponent(origin)), parent,
+    const win = {location: new URL('https://chat.example' + rootPath + query), parent,
         crypto: {randomUUID: () => `3d8630c4-ece2-4f16-b4aa-${String(++count).padStart(12, '0')}`},
         addEventListener: (name, fn) => handlers.set(name, fn), removeEventListener: name => handlers.delete(name),
         setTimeout: (fn, delay) => {timers.set(++timerId, {fn, delay}); return timerId;}, clearTimeout: id => timers.delete(id)};
     if (standalone) win.parent = win;
-    const doc = {referrer: '', addEventListener: (name, fn) => handlers.set(name, fn), removeEventListener: name => handlers.delete(name),
+    const doc = {referrer, addEventListener: (name, fn) => handlers.set(name, fn), removeEventListener: name => handlers.delete(name),
         createElement: () => ({setAttribute() {}})};
-    const bridge = new HostActionBridge(win, doc, [shop], '/example/m/widget', data => {
+    const bridge = new HostActionBridge(win, doc, allowedOrigins, rootPath, data => {
         if (telemetryFailure === 'throw') throw new Error('telemetry unavailable');
         if (telemetryFailure === 'reject') return Promise.reject(new Error('telemetry unavailable'));
         if (!connected) return false;
         socket.push(data); return true;
     }, translate);
-    const receive = (data, changes = {}) => handlers.get('message')({source: parent, origin: shop,
+    const receive = (data, changes = {}) => handlers.get('message')({source: parent, origin,
         data: {source: 'hraizn-host', channel: 'hraizn-host', version: 1, handshakeId: bridge.handshakeId, ...data}, ...changes});
     const ready = (actions = [{name: 'cart.add', mutating: true}, {name: 'navigation.goto', mutating: false}]) => receive({type: 'ready', actions});
     const click = (changes = {}) => handlers.get('click')({target: link, isTrusted: true, button: 0, preventDefault() {}, ...changes});
@@ -42,6 +43,102 @@ function fixture({origin = shop, href = '#action/cart.add?productNumber=3356-221
     return {bridge, win, doc, parent, messages, socket, ready, click, request, requests, receive, respond, timers, names, attributes,
         timeout, setHref: value => {href = value;}, status: () => status?.textContent, disconnect: () => {connected = false;}, reconnect: () => {connected = true;}};
 }
+
+test('only a metadata-only hello uses wildcard discovery; no action is sent before ready', () => {
+    const f = fixture({query: '?customer=private&hraiznHostOrigin=' + encodeURIComponent(shop)});
+    assert.equal(f.bridge.parentOrigin, null);
+    assert.deepEqual(f.messages, [{destination: '*', data: {
+        source: 'hraizn-chat', channel: 'hraizn-host', version: 1,
+        handshakeId: f.bridge.handshakeId, type: 'hello'
+    }}]);
+    f.click();
+    assert.equal(f.requests().length, 0); assert.equal(f.socket.length, 0);
+    assert.equal(f.timers.size, 0); assert.equal(f.bridge.parentOrigin, null);
+    f.bridge.dispose();
+});
+
+test('after login, a missing query and empty referrer do not prevent discovery or product actions', async () => {
+    for (const rootPath of ['/divino/m/widget', '/divino-prod/m/widget']) {
+        const f = fixture({rootPath, query: '', referrer: ''});
+        assert.equal(f.win.location.search, ''); assert.equal(f.doc.referrer, '');
+        assert.equal(f.messages[0].destination, '*');
+        f.ready(); assert.equal(f.bridge.parentOrigin, shop);
+        for (const action of ['cart.add', 'navigation.goto']) {
+            f.setHref('#action/' + action + '?productNumber=3356-221');
+            f.click(); f.respond(); await flushTelemetry();
+            assert.ok(f.names.has('hraizn-action-link-success'));
+            assert.equal(f.socket.at(-1).hostOrigin, shop);
+        }
+        assert.equal(f.requests().length, 2);
+        assert.ok(f.messages.filter(m => m.data.type === 'request').every(m => m.destination === shop));
+        f.bridge.dispose();
+    }
+});
+
+test('origin discovery trusts the browser event, not URL hints or the referrer', () => {
+    for (const options of [
+        {query: '?hraiznHostOrigin=' + encodeURIComponent('https://evil.example')},
+        {query: '?hraiznShopOrigin=' + encodeURIComponent(shop)},
+        {query: '?campaign=unrelated', referrer: 'https://chat.example/example/login'},
+        {referrer: 'not a valid URL'}
+    ]) {
+        const f = fixture(options); f.ready(); f.click();
+        assert.equal(f.bridge.parentOrigin, shop); assert.equal(f.requests().length, 1);
+        assert.equal(f.messages.at(-1).destination, shop); f.bridge.dispose();
+    }
+});
+
+test('URL, referrer and claimed origins cannot authorize a non-allowlisted browser origin', () => {
+    for (const origin of ['https://evil.example', 'https://shop.example.evil', 'http://shop.example', 'https://shop.example:444', 'null']) {
+        const f = fixture({origin, query: '?hraiznHostOrigin=' + encodeURIComponent(shop), referrer: shop});
+        f.receive({type: 'ready', origin: shop, hostOrigin: shop, actions: [{name: 'cart.add', mutating: true}]});
+        f.click(); assert.equal(f.bridge.parentOrigin, null); assert.equal(f.requests().length, 0);
+        f.bridge.dispose();
+    }
+});
+
+test('disabled and standalone integrations never announce or bind a host', () => {
+    for (const options of [{allowedOrigins: []}, {standalone: true}]) {
+        const f = fixture(options); assert.equal(f.messages.length, 0);
+        f.ready(); f.click();
+        assert.equal(f.bridge.parentOrigin, null); assert.equal(f.requests().length, 0);
+        f.bridge.dispose();
+    }
+});
+
+test('the first valid ready can bind either configured host and pins it for subsequent messages', () => {
+    const otherShop = 'https://other-shop.example';
+    for (const origin of [shop, otherShop]) {
+        const f = fixture({origin, allowedOrigins: [shop, otherShop]});
+        f.ready(); assert.equal(f.bridge.parentOrigin, origin);
+        const switchedOrigin = origin === shop ? otherShop : shop;
+        f.receive({type: 'ready', actions: [{name: 'admin.execute', mutating: true}]}, {origin: switchedOrigin});
+        assert.equal(f.bridge.parentOrigin, origin);
+        f.click(); assert.equal(f.messages.at(-1).destination, origin);
+        f.respond({}, {origin: switchedOrigin}); assert.ok(f.names.has('hraizn-action-link-pending'));
+        f.respond(); assert.ok(f.names.has('hraizn-action-link-success'));
+        f.setHref('#action/admin.execute'); f.click(); assert.equal(f.requests().length, 1);
+        f.bridge.dispose();
+    }
+});
+
+test('a malformed ready never binds and does not prevent a later valid handshake', () => {
+    for (const actions of [null, [], [{name: 'cart.add', mutating: 'true'}],
+        [{name: 'cart.add', mutating: true}, {name: 'cart.add', mutating: true}],
+        Array.from({length: 33}, (_, i) => ({name: 'room.show' + i, mutating: false}))]) {
+        const f = fixture(); f.ready(actions);
+        assert.equal(f.bridge.parentOrigin, null); f.click(); assert.equal(f.requests().length, 0);
+        f.ready(); f.click(); assert.equal(f.requests().length, 1); f.bridge.dispose();
+    }
+});
+
+test('oversized and non-ready messages never bind the host', () => {
+    const f = fixture();
+    f.receive({type: 'ready', padding: 'x'.repeat(8192), actions: [{name: 'cart.add', mutating: true}]});
+    f.receive({type: 'response', requestId: f.bridge.handshakeId, success: true, code: 'DONE'});
+    assert.equal(f.bridge.parentOrigin, null); f.click(); assert.equal(f.requests().length, 0);
+    f.ready(); f.click(); assert.equal(f.requests().length, 1); f.bridge.dispose();
+});
 
 test('handshake has no side effects; click dispatches directly and telemetry follows completion', async () => {
     const f = fixture();
@@ -84,7 +181,7 @@ test('wrong window, origin, handshake, version or manifest cannot activate', () 
         {actions: [{name: 'cart.add', mutating: 'true'}]}
     ].map(update => [update, {}])]) {
         const f = fixture(); f.receive({type: 'ready', actions: [{name: 'cart.add', mutating: true}], ...data}, changes);
-        f.click(); assert.equal(f.requests().length, 0); f.bridge.dispose();
+        f.click(); assert.equal(f.bridge.parentOrigin, null); assert.equal(f.requests().length, 0); f.bridge.dispose();
     }
 });
 
@@ -214,16 +311,17 @@ test('telemetry transport is volatile, never queues and never sends execution re
 
 test('direct client and real Shopware host preserve cart/navigation and replay protection without a chat socket', async () => {
     const {HraiznDivinoChat} = require('../../../../hraizn-saas-commons/shopware/HraiznDivinoChat/src/Resources/public/storefront/js/hraizn-divino-chat.js');
-    for (const action of ['cart.add', 'navigation.goto']) {
-        const f = fixture({connected: false, href: '#action/' + action + '?productNumber=3356-221'});
-        const calls = [], pages = [], host = Object.create(HraiznDivinoChat.prototype);
+    for (const rootPath of ['/divino/m/widget', '/divino-prod/m/widget']) for (const action of ['cart.add', 'navigation.goto']) {
+        const f = fixture({rootPath, query: '', referrer: '', connected: false, href: '#action/' + action + '?productNumber=3356-221'});
+        const calls = [], pages = [], openStates = [], host = Object.create(HraiznDivinoChat.prototype);
         Object.assign(host, {
-            chatUrl: new URL('https://chat.example/example/m/widget'), base: new URL(shop + '/weine'), basePath: '/weine/',
+            chatUrl: new URL('https://chat.example' + rootPath), base: new URL(shop + '/weine'), basePath: '/weine/',
             win: {location: {origin: shop}, setTimeout, clearTimeout},
             iframe: {contentWindow: f.win}, requests: new Map(), handshakeId: null, cartBusy: false, token: null,
             routes: {session: shop + '/weine/session', cartAdd: shop + '/weine/cart/add', product: shop + '/weine/product'},
             actions: new Map([['cart.add', {mutating: true, execute: (...args) => host.addToCart(...args)}], ['navigation.goto', {mutating: false, execute: (...args) => host.navigateProduct(...args)}]]),
             storefront: {navigate: async url => {pages.push(url); return true;}}, showCart: async () => pages.push('cart'),
+            setOpen: open => openStates.push(open),
             json: async (url, options) => {
                 calls.push({url, options});
                 if (url.endsWith('/session')) return {ok: true, body: {success: true, token: 'a'.repeat(64)}};
@@ -233,12 +331,14 @@ test('direct client and real Shopware host preserve cart/navigation and replay p
         });
         f.win.postMessage = data => f.receive(data);
         await host.onMessage({origin: f.win.location.origin, source: f.win, data: f.messages[0].data});
+        assert.equal(f.bridge.parentOrigin, shop); assert.equal(f.messages[0].destination, '*');
         assert.equal(calls.length, 0); f.click(); assert.equal(f.socket.length, 0);
         const event = {origin: f.win.location.origin, source: f.win, data: f.request()};
         await host.onMessage(event); await host.onMessage(event); await flushTelemetry();
         assert.ok(f.names.has('hraizn-action-link-success')); assert.equal(f.socket.length, 0);
         assert.equal(calls.filter(c => c.options?.method === 'POST').length, action === 'cart.add' ? 1 : 0);
         assert.equal(pages.length, 1); assert.equal(pages[0], action === 'cart.add' ? 'cart' : shop + '/weine/bacchus/3356-221');
+        assert.deepEqual(openStates, action === 'navigation.goto' ? [false] : []);
         f.bridge.dispose();
     }
 });
