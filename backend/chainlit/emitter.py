@@ -7,6 +7,7 @@ from socketio.exceptions import TimeoutError
 from chainlit.chat_context import chat_context
 from chainlit.config import config
 from chainlit.data import get_data_layer
+from chainlit.data.base import BaseDataLayer
 from chainlit.element import Element, ElementDict, File
 from chainlit.logger import logger
 from chainlit.message import Message
@@ -225,13 +226,32 @@ class ChainlitEmitter(BaseChainlitEmitter):
     def clear(self, event: Literal["clear_ask", "clear_call_fn"]):
         return self.emit(event, {})
 
+    async def _ensure_persisted_user(
+        self, data_layer: BaseDataLayer
+    ) -> Optional[PersistedUser]:
+        """Persist a new authenticated user on their first interaction."""
+        user = self.session.user
+        if user is None:
+            return None
+        if isinstance(user, PersistedUser):
+            return user
+
+        persisted_user = await data_layer.get_user(user.identifier)
+        if persisted_user is None:
+            persisted_user = await data_layer.create_user(user)
+        if persisted_user is None:
+            raise RuntimeError("Data layer did not return the persisted user")
+
+        if user.display_name:
+            persisted_user.display_name = user.display_name
+        self.session.user = persisted_user
+        return persisted_user
+
     async def flush_thread_queues(self, interaction: str):
         if data_layer := get_data_layer():
-            if isinstance(self.session.user, PersistedUser):
-                user_id = self.session.user.id
-            else:
-                user_id = None
             try:
+                persisted_user = await self._ensure_persisted_user(data_layer)
+                user_id = persisted_user.id if persisted_user else None
                 should_tag_thread = (
                     self.session.chat_profile and config.features.auto_tag_thread
                 )

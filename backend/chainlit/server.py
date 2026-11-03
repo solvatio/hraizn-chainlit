@@ -70,6 +70,8 @@ from chainlit.types import (
     DisconnectMCPRequest,
     ElementRequest,
     GetThreadsRequest,
+    PageInfo,
+    PaginatedResponse,
     ShareThreadRequest,
     Theme,
     UpdateFeedbackRequest,
@@ -549,15 +551,6 @@ async def _authenticate_user(
             status_code=401, detail="Invalid authentication token"
         )
 
-    # If a data layer is defined, attempt to persist user.
-    if data_layer := get_data_layer():
-        try:
-            await data_layer.create_user(user)
-        except Exception as e:
-            # Catch and log exceptions during user creation.
-            # TODO: Make this catch only specific errors and allow others to propagate.
-            logger.error(f"Error creating user: {e}")
-
     access_token = create_jwt(user)
 
     response = _get_auth_response(access_token, redirect_to_callback, mode, request)
@@ -1005,7 +998,18 @@ async def get_user_threads(
     if not isinstance(current_user, PersistedUser):
         persisted_user = await data_layer.get_user(identifier=current_user.identifier)
         if not persisted_user:
-            raise HTTPException(status_code=404, detail="User not found")
+            # An authenticated user is persisted only with the first interaction.
+            # Until then, the user cannot own any threads, so return an empty page.
+            return JSONResponse(
+                content=PaginatedResponse(
+                    pageInfo=PageInfo(
+                        hasNextPage=False,
+                        startCursor=None,
+                        endCursor=None,
+                    ),
+                    data=[],
+                ).to_dict()
+            )
         payload.filter.userId = persisted_user.id
     else:
         payload.filter.userId = current_user.id

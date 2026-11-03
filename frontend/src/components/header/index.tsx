@@ -25,7 +25,10 @@ const Header = memo(() => {
 
   const sidebarOpen = isMobile ? openMobile : open;
 
-  const historyEnabled = data?.requireLogin && config?.dataPersistence;
+  const historyEnabled =
+    data?.requireLogin &&
+    config?.dataPersistence &&
+    config?.features?.thread_history !== false;
 
   const links = config?.ui?.header_links || [];
 

@@ -1,4 +1,8 @@
+<<<<<<<< HEAD:backend/chainlit/frontend/dist/assets/Dataframe-DE1QgPxs.js
 import{r as E,u as he,j as h,L as _e,A as Fe,a as $e,b as xe,P as j,c as ve,T as Pe,d as Me,e as B,f as Ve,g as Ie,h as re,i as ye,k as Ee,l as De,m as He}from"./index-gcjHPuNF.js";/**
+========
+import{r as E,u as he,j as h,L as _e,A as Fe,a as $e,b as xe,P as j,c as ve,T as Pe,d as Me,e as B,f as Ve,g as Ie,h as re,i as ye,k as Ee,l as De,m as He}from"./index-CLgCwTl6.js";/**
+>>>>>>>> 0e0fb64b7070c99a60e1a9d87e3e50a2fdc9c458:backend/chainlit/frontend/dist/assets/Dataframe-k6Tb5i9J.js
    * table-core
    *
    * Copyright (c) TanStack
