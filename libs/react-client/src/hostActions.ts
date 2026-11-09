@@ -99,13 +99,34 @@ export function parseHostActions(actions: unknown): Action[] | null {
 const FONT_FAMILY = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
 const MAX_FONT_FACES = 4;
 const MAX_FONT_BYTES = 1024 * 1024;
+// Optional root font size in px. Chainlit sizes text and spacing in rem, so it
+// scales the whole chat proportionally. Bounded to keep the layout usable.
+const MIN_FONT_SIZE = 12;
+const MAX_FONT_SIZE = 20;
 export type HostFont = {
-  family: string;
+  family: string | null;
   faces: { data: ArrayBuffer; weight: string; style: 'normal' | 'italic' }[];
+  size: number | null;
 };
 export function parseHostFont(message: unknown): HostFont | null {
   if (!record(message)) return null;
-  const { family, faces } = message;
+  const { family, faces, size } = message;
+  let parsedSize: number | null = null;
+  if (size !== undefined) {
+    if (
+      typeof size !== 'number' ||
+      !Number.isInteger(size) ||
+      size < MIN_FONT_SIZE ||
+      size > MAX_FONT_SIZE
+    )
+      return null;
+    parsedSize = size;
+  }
+  // A size alone is valid: the host may not serve a readable font file.
+  if (family === undefined && faces === undefined)
+    return parsedSize === null
+      ? null
+      : { family: null, faces: [], size: parsedSize };
   if (
     typeof family !== 'string' ||
     !FONT_FAMILY.test(family) ||
@@ -131,18 +152,23 @@ export function parseHostFont(message: unknown): HostFont | null {
       style: face.style
     });
   }
-  return { family, faces: parsed };
+  return { family, faces: parsed, size: parsedSize };
 }
 export async function applyHostFont(
   win: Window,
   doc: Document,
   font: HostFont
 ): Promise<boolean> {
+  // The size applies at once and independently of the font download.
+  if (font.size !== null)
+    doc.documentElement.style.fontSize = `${font.size}px`;
+  const family = font.family;
+  if (!family || !font.faces.length) return font.size !== null;
   const FontFaceCtor = (win as any).FontFace as typeof FontFace | undefined;
   if (!FontFaceCtor || !doc.fonts) return false;
   const loaded = await Promise.all(
     font.faces.map((face) =>
-      new FontFaceCtor(font.family, face.data, {
+      new FontFaceCtor(family, face.data, {
         weight: face.weight,
         style: face.style,
         display: 'swap'
@@ -153,7 +179,7 @@ export async function applyHostFont(
   // --font-sans is the chat-wide UI and message font (frontend/src/index.css).
   doc.documentElement.style.setProperty(
     '--font-sans',
-    `"${font.family}", 'Inter', sans-serif`
+    `"${family}", 'Inter', sans-serif`
   );
   return true;
 }

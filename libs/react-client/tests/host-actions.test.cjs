@@ -397,14 +397,14 @@ function fontFixture({origin = shop} = {}) {
         addEventListener: (name, fn) => handlers.set(name, fn), removeEventListener: name => handlers.delete(name),
         setTimeout: () => 0, clearTimeout() {}};
     const doc = {referrer: '', addEventListener() {}, removeEventListener() {}, createElement: () => ({setAttribute() {}}),
-        fonts: {add: face => added.push(face)}, documentElement: {style: {setProperty: (k, v) => props.set(k, v)}}};
+        fonts: {add: face => added.push(face)}, documentElement: {style: {setProperty: (k, v) => props.set(k, v), fontSize: ''}}};
     const bridge = new HostActionBridge(win, doc, [shop], '/example/m/widget', () => true);
     const receive = (data, changes = {}) => handlers.get('message')({source: parent, origin,
         data: {source: 'hraizn-host', channel: 'hraizn-host', version: 1, handshakeId: bridge.handshakeId, ...data}, ...changes});
     const ready = () => receive({type: 'ready', actions: [{name: 'cart.add', mutating: true}]});
     const font = (changes = {}, event = {}) => receive({type: 'font', family: 'Chalet Comprime',
         faces: [{data: new ArrayBuffer(16), weight: '400', style: 'normal'}], ...changes}, event);
-    return {bridge, receive, ready, font, added, props};
+    return {bridge, receive, ready, font, added, props, style: doc.documentElement.style};
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
@@ -422,6 +422,15 @@ test('host font is ignored before ready, from other windows or origins', async (
     assert.equal(f.added.length, 0); assert.equal(f.props.size, 0); f.bridge.dispose();
 });
 
+test('host font size scales the chat root, with or without font faces', async () => {
+    const f = fontFixture(); f.ready(); f.font({size: 17}); await settle();
+    assert.equal(f.style.fontSize, '17px'); assert.equal(f.added.length, 1); f.bridge.dispose();
+    const g = fontFixture(); g.ready(); g.receive({type: 'font', size: 15}); await settle();
+    assert.equal(g.style.fontSize, '15px'); assert.equal(g.added.length, 0); assert.equal(g.props.size, 0); g.bridge.dispose();
+    const h = fontFixture(); h.font({size: 18}); h.ready(); h.font({size: 30}); await settle();
+    assert.equal(h.style.fontSize, ''); h.bridge.dispose();
+});
+
 test('invalid host font payloads are rejected', () => {
     const face = {data: new ArrayBuffer(8), weight: '400', style: 'normal'};
     assert.ok(parseHostFont({family: 'Chalet Comprime', faces: [face]}));
@@ -429,15 +438,21 @@ test('invalid host font payloads are rejected', () => {
         {family: 'x"; color: red', faces: [face]}, {family: 'Chalet', faces: []},
         {family: 'Chalet', faces: Array(5).fill(face)}, {family: 'Chalet', faces: [{...face, data: 'AAAA'}]},
         {family: 'Chalet', faces: [{...face, data: new ArrayBuffer(1024 * 1024 + 1)}]},
-        {family: 'Chalet', faces: [{...face, weight: 'bold;'}]}, {family: 'Chalet', faces: [{...face, style: 'oblique'}]}
+        {family: 'Chalet', faces: [{...face, weight: 'bold;'}]}, {family: 'Chalet', faces: [{...face, style: 'oblique'}]},
+        {}, {size: 11}, {size: 21}, {size: 16.5}, {size: '16px'}, {size: 16, family: 'Chalet'},
+        {family: 'Chalet Comprime', faces: [face], size: 100}
     ]) assert.equal(parseHostFont(message), null);
+    assert.deepEqual(parseHostFont({size: 16}), {family: null, faces: [], size: 16});
 });
 
 test('a failing font load keeps the default chat font', async () => {
     const doc = {fonts: {add() { throw new Error('unexpected'); }}, documentElement: {style: {setProperty() { throw new Error('unexpected'); }}}};
     class Broken { load() { return Promise.reject(new Error('corrupt font')); } }
-    await assert.rejects(applyHostFont({FontFace: Broken}, doc, {family: 'Chalet', faces: [{data: new ArrayBuffer(4), weight: '400', style: 'normal'}]}));
-    assert.equal(await applyHostFont({}, doc, {family: 'Chalet', faces: []}), false);
+    await assert.rejects(applyHostFont({FontFace: Broken}, doc, {family: 'Chalet', faces: [{data: new ArrayBuffer(4), weight: '400', style: 'normal'}], size: null}));
+    assert.equal(await applyHostFont({}, doc, {family: 'Chalet', faces: [], size: null}), false);
+    // A failing font download does not undo the size, which applies first.
+    await assert.rejects(applyHostFont({FontFace: Broken}, doc, {family: 'Chalet', faces: [{data: new ArrayBuffer(4), weight: '400', style: 'normal'}], size: 18}));
+    assert.equal(doc.documentElement.style.fontSize, '18px');
 });
 
 test('a host without actions binds for typography only and exposes no action', async () => {
