@@ -2,7 +2,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
-const {HostActionBridge, HOST_ACTION_DEFAULT_MESSAGES, parseHostActions, isHostMessage, isOwnWindowMessage, sendHostSocketMessage} = require('../src/hostActions.ts');
+const {HostActionBridge, HOST_ACTION_DEFAULT_MESSAGES, parseHostActions, isHostMessage, isOwnWindowMessage, sendHostSocketMessage, parseHostFont, applyHostFont} = require('../src/hostActions.ts');
 const shop = 'https://shop.example';
 global.Element = class {};
 const flushTelemetry = async () => {await Promise.resolve(); await Promise.resolve();};
@@ -123,7 +123,7 @@ test('the first valid ready can bind either configured host and pins it for subs
 });
 
 test('a malformed ready never binds and does not prevent a later valid handshake', () => {
-    for (const actions of [null, [], [{name: 'cart.add', mutating: 'true'}],
+    for (const actions of [null, {}, [{name: 'cart.add', mutating: 'true'}],
         [{name: 'cart.add', mutating: true}, {name: 'cart.add', mutating: true}],
         Array.from({length: 33}, (_, i) => ({name: 'room.show' + i, mutating: false}))]) {
         const f = fixture(); f.ready(actions);
@@ -281,7 +281,7 @@ test('direct dispatch errors complete locally and preserve conservative mutation
 });
 
 test('strict manifest bounds and stale server commands cannot use the legacy wildcard path', () => {
-    for (const actions of [[], [{name: 'bad', mutating: true}], [{name: 'cart.add', mutating: 'true'}],
+    for (const actions of [{}, [{name: 'bad', mutating: true}], [{name: 'cart.add', mutating: 'true'}],
         [{name: 'cart.add', mutating: true}, {name: 'cart.add', mutating: true}], Array.from({length: 33}, (_, i) => ({name: 'room.show' + i, mutating: false}))]) assert.equal(parseHostActions(actions), null);
     assert.equal(isHostMessage({channel: 'hraizn-host', type: 'request'}), true);
     assert.equal(isHostMessage({type: 'profile'}), false);
@@ -383,4 +383,70 @@ test('language changes preserve the handshake and mutation guard while telemetry
     f.ready(); f.click(); const handshakeId = f.bridge.handshakeId; language = 'en-US'; f.click();
     assert.equal(f.requests().length, 1); f.respond(); assert.equal(f.status(), 'The action was completed.');
     assert.equal(f.bridge.handshakeId, handshakeId); assert.equal(f.messages.filter(m => m.data.type === 'hello').length, 1); f.bridge.dispose();
+});
+
+// Host typography: font bytes come only from the bound parent; the chat hosts no font file.
+function fontFixture({origin = shop} = {}) {
+    const handlers = new Map(), added = [], props = new Map(), parent = {postMessage() {}};
+    class FakeFontFace {
+        constructor(family, data, descriptors) { Object.assign(this, {family, data, descriptors}); }
+        load() { return Promise.resolve(this); }
+    }
+    const win = {location: new URL('https://chat.example/example/m/widget'), parent, FontFace: FakeFontFace,
+        crypto: {randomUUID: () => '3d8630c4-ece2-4f16-b4aa-000000000001'},
+        addEventListener: (name, fn) => handlers.set(name, fn), removeEventListener: name => handlers.delete(name),
+        setTimeout: () => 0, clearTimeout() {}};
+    const doc = {referrer: '', addEventListener() {}, removeEventListener() {}, createElement: () => ({setAttribute() {}}),
+        fonts: {add: face => added.push(face)}, documentElement: {style: {setProperty: (k, v) => props.set(k, v)}}};
+    const bridge = new HostActionBridge(win, doc, [shop], '/example/m/widget', () => true);
+    const receive = (data, changes = {}) => handlers.get('message')({source: parent, origin,
+        data: {source: 'hraizn-host', channel: 'hraizn-host', version: 1, handshakeId: bridge.handshakeId, ...data}, ...changes});
+    const ready = () => receive({type: 'ready', actions: [{name: 'cart.add', mutating: true}]});
+    const font = (changes = {}, event = {}) => receive({type: 'font', family: 'Chalet Comprime',
+        faces: [{data: new ArrayBuffer(16), weight: '400', style: 'normal'}], ...changes}, event);
+    return {bridge, receive, ready, font, added, props};
+}
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('host font from the bound parent is registered and becomes the chat font', async () => {
+    const f = fontFixture(); f.ready(); f.font(); await settle();
+    assert.equal(f.added.length, 1); assert.equal(f.added[0].family, 'Chalet Comprime');
+    assert.deepEqual(f.added[0].descriptors, {weight: '400', style: 'normal', display: 'swap'});
+    assert.equal(f.props.get('--font-sans'), '"Chalet Comprime", \'Inter\', sans-serif');
+    f.font({family: 'Other'}); await settle(); assert.equal(f.added.length, 1); f.bridge.dispose();
+});
+
+test('host font is ignored before ready, from other windows or origins', async () => {
+    const f = fontFixture(); f.font(); await settle(); assert.equal(f.added.length, 0);
+    f.ready(); f.font({}, {origin: 'https://evil.example'}); f.font({}, {source: {}}); await settle();
+    assert.equal(f.added.length, 0); assert.equal(f.props.size, 0); f.bridge.dispose();
+});
+
+test('invalid host font payloads are rejected', () => {
+    const face = {data: new ArrayBuffer(8), weight: '400', style: 'normal'};
+    assert.ok(parseHostFont({family: 'Chalet Comprime', faces: [face]}));
+    for (const message of [
+        {family: 'x"; color: red', faces: [face]}, {family: 'Chalet', faces: []},
+        {family: 'Chalet', faces: Array(5).fill(face)}, {family: 'Chalet', faces: [{...face, data: 'AAAA'}]},
+        {family: 'Chalet', faces: [{...face, data: new ArrayBuffer(1024 * 1024 + 1)}]},
+        {family: 'Chalet', faces: [{...face, weight: 'bold;'}]}, {family: 'Chalet', faces: [{...face, style: 'oblique'}]}
+    ]) assert.equal(parseHostFont(message), null);
+});
+
+test('a failing font load keeps the default chat font', async () => {
+    const doc = {fonts: {add() { throw new Error('unexpected'); }}, documentElement: {style: {setProperty() { throw new Error('unexpected'); }}}};
+    class Broken { load() { return Promise.reject(new Error('corrupt font')); } }
+    await assert.rejects(applyHostFont({FontFace: Broken}, doc, {family: 'Chalet', faces: [{data: new ArrayBuffer(4), weight: '400', style: 'normal'}]}));
+    assert.equal(await applyHostFont({}, doc, {family: 'Chalet', faces: []}), false);
+});
+
+test('a host without actions binds for typography only and exposes no action', async () => {
+    assert.deepEqual(parseHostActions([]), []);
+    const f = fontFixture(); f.receive({type: 'ready', actions: []}); f.font(); await settle();
+    assert.equal(f.bridge.parentOrigin, shop); assert.equal(f.added.length, 1); f.bridge.dispose();
+});
+
+test('action links stay unavailable when the host registered no action', () => {
+    const f = fixture(); f.ready([]); f.click();
+    assert.equal(f.requests().length, 0); assert.equal(f.status(), HOST_ACTION_DEFAULT_MESSAGES['hostActions.unavailable']); f.bridge.dispose();
 });

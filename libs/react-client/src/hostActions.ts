@@ -75,8 +75,9 @@ type Pending = {
 };
 
 export function parseHostActions(actions: unknown): Action[] | null {
-  if (!Array.isArray(actions) || !actions.length || actions.length > 32)
-    return null;
+  // An empty manifest is valid: a host may only provide typography (e.g. a CMS
+  // page) and then exposes no action; action links stay unavailable.
+  if (!Array.isArray(actions) || actions.length > 32) return null;
   const names = new Set();
   for (const action of actions) {
     if (
@@ -93,8 +94,73 @@ export function parseHostActions(actions: unknown): Action[] | null {
   return actions;
 }
 
+// Optional host typography: the parent sends font bytes it already serves, so
+// the chat neither hosts nor fetches the file (no font-src/CORS dependency).
+const FONT_FAMILY = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/;
+const MAX_FONT_FACES = 4;
+const MAX_FONT_BYTES = 1024 * 1024;
+export type HostFont = {
+  family: string;
+  faces: { data: ArrayBuffer; weight: string; style: 'normal' | 'italic' }[];
+};
+export function parseHostFont(message: unknown): HostFont | null {
+  if (!record(message)) return null;
+  const { family, faces } = message;
+  if (
+    typeof family !== 'string' ||
+    !FONT_FAMILY.test(family) ||
+    !Array.isArray(faces) ||
+    !faces.length ||
+    faces.length > MAX_FONT_FACES
+  )
+    return null;
+  const parsed: HostFont['faces'] = [];
+  for (const face of faces) {
+    if (
+      !record(face) ||
+      !(face.data instanceof ArrayBuffer) ||
+      face.data.byteLength < 1 ||
+      face.data.byteLength > MAX_FONT_BYTES ||
+      !/^[1-9]00$/.test(String(face.weight)) ||
+      (face.style !== 'normal' && face.style !== 'italic')
+    )
+      return null;
+    parsed.push({
+      data: face.data,
+      weight: String(face.weight),
+      style: face.style
+    });
+  }
+  return { family, faces: parsed };
+}
+export async function applyHostFont(
+  win: Window,
+  doc: Document,
+  font: HostFont
+): Promise<boolean> {
+  const FontFaceCtor = (win as any).FontFace as typeof FontFace | undefined;
+  if (!FontFaceCtor || !doc.fonts) return false;
+  const loaded = await Promise.all(
+    font.faces.map((face) =>
+      new FontFaceCtor(font.family, face.data, {
+        weight: face.weight,
+        style: face.style,
+        display: 'swap'
+      }).load()
+    )
+  );
+  loaded.forEach((face) => doc.fonts.add(face));
+  // --font-sans is the chat-wide UI and message font (frontend/src/index.css).
+  doc.documentElement.style.setProperty(
+    '--font-sans',
+    `"${font.family}", 'Inter', sans-serif`
+  );
+  return true;
+}
+
 export class HostActionBridge {
   readonly handshakeId: string;
+  private fontReceived = false;
   private boundOrigin: string | null = null;
   private readonly allowedOrigins: ReadonlySet<string>;
   private actions = new Map<string, Action>();
@@ -208,6 +274,18 @@ export class HostActionBridge {
       this.boundOrigin = event.origin;
       this.actions = new Map(actions.map((a) => [a.name, a]));
       this.ready = true;
+    } else if (
+      this.ready &&
+      event.origin === this.parentOrigin &&
+      message.type === 'font' &&
+      !this.fontReceived
+    ) {
+      const font = parseHostFont(message);
+      if (!font) return;
+      this.fontReceived = true;
+      void applyHostFont(this.win, this.doc, font).catch(() => {
+        // Optional styling only: the default chat font stays on any failure.
+      });
     } else if (
       this.ready &&
       event.origin === this.parentOrigin &&
