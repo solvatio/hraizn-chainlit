@@ -7,8 +7,6 @@ from fastapi.security.base import SecurityBase
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.status import HTTP_401_UNAUTHORIZED
 
-from chainlit.config import config
-
 """ Module level cookie settings. """
 _cookie_samesite = cast(
     Literal["lax", "strict", "none"],
@@ -29,13 +27,18 @@ else:
     _cookie_path = os.environ.get("CHAINLIT_AUTH_COOKIE_PATH", "/")
 _state_cookie_lifetime = 3 * 60  # 3m
 _auth_cookie_name = os.environ.get("CHAINLIT_AUTH_COOKIE_NAME", "access_token")
+_token_handoff_cookie_name = "token_handoff"
+_token_handoff_cookie_lifetime = 60  # 1m
 _state_cookie_name = "oauth_state"
 _url_state_cookie_name = "url_state"
 
 
-class OAuth2PasswordBearerWithCookie(SecurityBase):
+class OAuth2PasswordBearerHeader(SecurityBase):
     """
-    OAuth2 password flow with cookie support with fallback to bearer token.
+    OAuth2 password flow reading the token from the Authorization header only.
+
+    Cookies are deliberately not accepted: browsers block third-party cookies
+    in embedded (iframe) chats, so the bearer token is the single auth path.
     """
 
     def __init__(
@@ -49,44 +52,31 @@ class OAuth2PasswordBearerWithCookie(SecurityBase):
         self.auto_error = auto_error
 
     async def __call__(self, request: Request) -> Optional[str]:
-        # First try to get the token from the cookie
-        token = get_token_from_cookies(request.cookies)
+        authorization = request.headers.get("Authorization")
+        scheme, token = get_authorization_scheme_param(authorization)
 
-        # If no cookie, try the Authorization header as fallback
-        if not token:
-            # TODO: Only bother to check if cookie auth is explicitly disabled.
-            authorization = request.headers.get("Authorization")
-            if authorization:
-                scheme, token = get_authorization_scheme_param(authorization)
-                if scheme.lower() != "bearer":
-                    if self.auto_error:
-                        raise HTTPException(
-                            status_code=HTTP_401_UNAUTHORIZED,
-                            detail="Invalid authentication credentials",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                    else:
-                        return None
-            else:
-                if self.auto_error:
-                    raise HTTPException(
-                        status_code=HTTP_401_UNAUTHORIZED,
-                        detail="Not authenticated",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-                else:
-                    return None
+        if not authorization or scheme.lower() != "bearer" or not token:
+            if self.auto_error:
+                raise HTTPException(
+                    status_code=HTTP_401_UNAUTHORIZED,
+                    detail="Not authenticated",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return None
 
         return token
 
 
 def _get_chunked_cookie(cookies: dict[str, str], name: str) -> Optional[str]:
-    # Gather all auth_chunk_i cookies, sorted by their index
+    """Read a cookie that may have been split into <name>_<i> chunks."""
+    if value := cookies.get(name):
+        return value
+
     chunk_parts = []
 
     i = 0
     while True:
-        cookie_key = f"{_auth_cookie_name}_{i}"
+        cookie_key = f"{name}_{i}"
         if cookie_key not in cookies:
             break
 
@@ -98,79 +88,58 @@ def _get_chunked_cookie(cookies: dict[str, str], name: str) -> Optional[str]:
     return joined if joined != "" else None
 
 
-def get_token_from_cookies(cookies: dict[str, str]) -> Optional[str]:
-    """
-    Read all chunk cookies and reconstruct the token
-    """
-
-    # Default/unchunked cookies
-    if value := cookies.get(_auth_cookie_name):
-        return value
-
-    return _get_chunked_cookie(cookies, _auth_cookie_name)
-
-
-def set_auth_cookie(request: Request, response: Response, token: str):
-    """
-    Helper function to set the authentication cookie with secure parameters
-    and remove any leftover chunks from a previously larger token.
-    """
-
-    _chunk_size = 3000
-
-    existing_cookies = {
-        k for k in request.cookies.keys() if k.startswith(_auth_cookie_name)
-    }
-
-    if len(token) > _chunk_size:
-        chunks = [token[i : i + _chunk_size] for i in range(0, len(token), _chunk_size)]
-
-        for i, chunk in enumerate(chunks):
-            k = f"{_auth_cookie_name}_{i}"
-
-            response.set_cookie(
-                key=k,
-                value=chunk,
-                httponly=True,
-                secure=_cookie_secure,
-                samesite=_cookie_samesite,
-                max_age=config.project.user_session_timeout,
-            )
-
-            existing_cookies.discard(k)
-    else:
-        # Default (shorter cookies)
-        response.set_cookie(
-            key=_auth_cookie_name,
-            value=token,
-            httponly=True,
-            secure=_cookie_secure,
-            samesite=_cookie_samesite,
-            max_age=config.project.user_session_timeout,
-        )
-
-        existing_cookies.discard(_auth_cookie_name)
-
-    # Delete remaining prior cookies/cookie chunks
-    for k in existing_cookies:
+def _clear_chunked_cookie(
+    request: Request,
+    response: Response,
+    name: str,
+    samesite: Literal["lax", "strict", "none"],
+):
+    for k in [k for k in request.cookies.keys() if k.startswith(name)]:
         response.delete_cookie(
-            key=k, path=_cookie_path, secure=_cookie_secure, samesite=_cookie_samesite
+            key=k, path=_cookie_path, secure=_cookie_secure, samesite=samesite
         )
 
 
 def clear_auth_cookie(request: Request, response: Response):
     """
-    Helper function to clear the authentication cookie
+    Remove auth cookies left over from the former cookie based authentication.
+    Auth cookies are no longer set; the access token is returned in the login
+    response body and sent as bearer token by the client.
     """
+    _clear_chunked_cookie(request, response, _auth_cookie_name, _cookie_samesite)
 
-    existing_cookies = {
-        k for k in request.cookies.keys() if k.startswith(_auth_cookie_name)
-    }
 
-    for k in existing_cookies:
-        response.delete_cookie(
-            key=k, path=_cookie_path, secure=_cookie_secure, samesite=_cookie_samesite
+def set_token_handoff_cookie(response: Response, token: str):
+    """
+    Hand the access token over to the frontend after a redirect based login
+    (OAuth). The token must not appear in a URL, so it travels in a short-lived
+    HttpOnly cookie that the frontend exchanges once via POST /auth/token.
+
+    SameSite=Lax: the cookie is only needed in the first-party redirect flow
+    and must never be sent with cross-site requests.
+    """
+    _chunk_size = 3000
+    chunks = [token[i : i + _chunk_size] for i in range(0, len(token), _chunk_size)]
+
+    for i, chunk in enumerate(chunks):
+        response.set_cookie(
+            key=f"{_token_handoff_cookie_name}_{i}",
+            value=chunk,
+            httponly=True,
+            secure=_cookie_secure,
+            samesite="lax",
+            path=_cookie_path,
+            max_age=_token_handoff_cookie_lifetime,
         )
+
+
+def get_token_from_handoff_cookie(request: Request) -> Optional[str]:
+    return _get_chunked_cookie(request.cookies, _token_handoff_cookie_name)
+
+
+def clear_token_handoff_cookie(request: Request, response: Response):
+    _clear_chunked_cookie(request, response, _token_handoff_cookie_name, "lax")
+
 
 def set_url_state_cookie(response: Response, url_state: str):
     response.set_cookie(

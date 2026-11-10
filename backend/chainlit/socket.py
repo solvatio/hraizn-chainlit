@@ -5,13 +5,11 @@ from itertools import islice
 from typing import Any, Dict, Literal, Optional, Tuple, TypedDict, Union
 from urllib.parse import unquote
 
-from starlette.requests import cookie_parser
 from typing_extensions import TypeAlias
 
 import chainlit.modes
 from chainlit.auth import (
     get_current_user,
-    get_token_from_cookies,
     require_login,
 )
 from chainlit.chat_context import chat_context
@@ -91,6 +89,8 @@ class WebSocketSessionAuth(TypedDict):
     clientType: ClientType
     chatProfile: str | None
     threadId: str | None
+    # Access token (bearer). Cookies are not used for authentication.
+    token: str | None
 
 
 def restore_existing_session(sid, session_id, emit_fn, emit_call_fn):
@@ -182,17 +182,10 @@ def _store_start_parameters_for_new_thread(
     session_values.setdefault("start_parameters", dict(chat_parameters))
 
 
-def _get_token_from_cookie(environ: WSGIEnvironment) -> Optional[str]:
-    if cookie_header := environ.get("HTTP_COOKIE", None):
-        cookies = cookie_parser(cookie_header)
-        return get_token_from_cookies(cookies)
-
-    return None
-
-
-def _get_token(environ: WSGIEnvironment) -> Optional[str]:
-    """Take WSGI environ, return access token."""
-    return _get_token_from_cookie(environ)
+def _get_token(auth: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Take the Socket.IO handshake auth payload, return access token."""
+    token = auth.get("token") if isinstance(auth, dict) else None
+    return token if isinstance(token, str) and token else None
 
 def get_mode_name(environ: dict):
     path_info = environ.get("PATH_INFO", "")
@@ -205,8 +198,9 @@ def get_mode_name(environ: dict):
 
 async def _authenticate_connection(
     environ: WSGIEnvironment,
+    auth: Optional[Dict[str, Any]] = None,
 ) -> Union[Tuple[Union[User, PersistedUser], str], Tuple[None, None]]:
-    if token := _get_token(environ):
+    if token := _get_token(auth):
         user = await get_current_user(token=token, mode_name=get_mode_name(environ))
         if user:
             return user, token
@@ -222,7 +216,7 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
 
     if require_login(get_mode_name(environ)):
         try:
-            user, token = await _authenticate_connection(environ)
+            user, token = await _authenticate_connection(environ, auth)
         except Exception as e:
             logger.exception("Exception authenticating connection: %s", e)
 

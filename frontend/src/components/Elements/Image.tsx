@@ -4,6 +4,8 @@ import { useState } from 'react';
 
 import { IImageElement } from '@chainlit/react-client';
 
+import { useSessionFileUrl } from '@/hooks/useSessionFileUrl';
+
 import {
   Dialog,
   DialogContent,
@@ -13,8 +15,9 @@ import {
 
 const ImageElement = ({ element }: { element: IImageElement }) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const url = useSessionFileUrl(element.url);
 
-  if (!element.url) return null;
+  if (!url) return null;
 
   const handleClick = () => {
     setLightboxOpen(true);
@@ -29,7 +32,7 @@ const ImageElement = ({ element }: { element: IImageElement }) => {
             element.display === 'inline' && 'cursor-pointer',
             `${element.display}-image`
           )}
-          src={element.url}
+          src={url}
           alt={element.name}
           loading="lazy"
           onClick={handleClick}
@@ -50,7 +53,7 @@ const ImageElement = ({ element }: { element: IImageElement }) => {
               </button>
 
               <img
-                src={element.url}
+                src={url}
                 alt={element.name}
                 className="max-w-[90vw] max-h-[90vh] object-contain"
                 onClick={(e) => e.stopPropagation()}

@@ -16,7 +16,7 @@ export default function LoginAnon() {
   const apiClient = useContext(ChainlitContext);
   const navigate = useNavigate();
 
-  const handleCookieAuth = (json: any): void => {
+  const handleTokenAuth = (json: any): void => {
     if (json?.success != true) throw LoginAnonError;
 
     setUserFromAPI();
@@ -26,7 +26,7 @@ export default function LoginAnon() {
     try {
       const json = await jsonPromise;
 
-      handleCookieAuth(json);
+      handleTokenAuth(json);
     } catch (error: any) {
       if (error instanceof ClientError && error.detail) {
         setError(error.detail);
