@@ -34,6 +34,54 @@ WSGIEnvironment: TypeAlias = dict[str, Any]
 
 MAX_CHAT_PARAMETERS = 8
 MAX_CHAT_PARAMETER_VALUE_LENGTH = 50
+USER_MESSAGE_TOO_LONG = (
+    "Your message exceeds the maximum allowed length of {max_chars} characters."
+)
+INVALID_USER_MESSAGE = "The message could not be processed."
+
+
+def validate_user_message_payload(
+    payload: MessagePayload,
+    char_limit: int,
+) -> Tuple[Optional[str], Optional[int]]:
+    """Return a safe client error and character count for invalid messages."""
+    if not isinstance(payload, dict):
+        return INVALID_USER_MESSAGE, None
+
+    step = payload.get("message")
+    if not isinstance(step, dict):
+        return INVALID_USER_MESSAGE, None
+
+    content = step.get("output")
+    if not isinstance(content, str):
+        return INVALID_USER_MESSAGE, None
+
+    char_count = len(content)
+    if char_limit > 0 and char_count > char_limit:
+        return USER_MESSAGE_TOO_LONG.format(max_chars=char_limit), char_count
+
+    return None, char_count
+
+
+async def reject_invalid_user_message(
+    session: WebsocketSession,
+    payload: MessagePayload,
+) -> bool:
+    char_limit = session.get_config().features.max_char_limit
+    error, char_count = validate_user_message_payload(payload, char_limit)
+    if error is None:
+        return False
+
+    reason = "too_long" if char_count is not None else "invalid_payload"
+    logger.warning(
+        "Rejected user message: reason=%s char_count=%s max_chars=%s",
+        reason,
+        char_count,
+        char_limit,
+    )
+    context = init_ws_context(session)
+    await context.emitter.send_toast(error, type="error")
+    return True
 
 
 class WebSocketSessionAuth(TypedDict):
@@ -368,6 +416,9 @@ async def process_message(session: WebsocketSession, payload: MessagePayload):
 async def edit_message(sid, payload: MessagePayload):
     """Handle a message sent by the User."""
     session = WebsocketSession.require(sid)
+    if await reject_invalid_user_message(session, payload):
+        return
+
     context = init_ws_context(session)
 
     messages = chat_context.get()
@@ -398,6 +449,8 @@ async def edit_message(sid, payload: MessagePayload):
 async def message(sid, payload: MessagePayload):
     """Handle a message sent by the User."""
     session = WebsocketSession.require(sid)
+    if await reject_invalid_user_message(session, payload):
+        return
 
     task = asyncio.create_task(process_message(session, payload))
     session.current_task = task

@@ -80,6 +80,10 @@ export default function MessageComposer({
   const { sendMessage, replyMessage } = useChatInteract();
   const { askUser, chatSettingsInputs, disabled: _disabled } = useChatData();
   const { config } = useConfig();
+  const maxCharLimit = config?.features?.max_char_limit ?? 0;
+  const hasCharLimit = maxCharLimit > 0;
+  const hasReachedCharLimit = hasCharLimit && value.length >= maxCharLimit;
+  const isMessageTooLong = hasCharLimit && value.length > maxCharLimit;
 
   const disabled =
     _disabled ||
@@ -168,6 +172,7 @@ export default function MessageComposer({
   const submit = useCallback(async () => {
     if (
       disabled ||
+      isMessageTooLong ||
       (
         value.trim() === '' &&
         attachments.length === 0 &&
@@ -204,6 +209,7 @@ export default function MessageComposer({
   }, [
     value,
     disabled,
+    isMessageTooLong,
     askUser,
     attachments,
     selectedCommand,
@@ -231,6 +237,7 @@ return (
             ref={inputRef}
             id="chat-input"
             autoFocus={!isMobile}
+            maxLength={hasCharLimit ? maxCharLimit : undefined}
             selectedCommand={selectedCommand}
             setSelectedCommand={setSelectedCommand}
             onChange={setValue}
@@ -244,6 +251,13 @@ return (
                 : 'text-sm leading-normal'
             )}
           />
+          {hasReachedCharLimit ? (
+            <p className="px-1 text-xs text-muted-foreground" role="status">
+              {t('chatUserMsgCharLimitReachedShort', {
+                chat_user_msg_char_limit: maxCharLimit
+              })}
+            </p>
+          ) : null}
         </div>
 
         <div className="sticky top-0 h-12 flex items-center gap-1">
@@ -332,6 +346,7 @@ return (
             onSubmit={submit}
             disabled={
               disabled ||
+              isMessageTooLong ||
               (
                 !value.trim() &&
                 !selectedCommand &&
