@@ -7,15 +7,13 @@ from chainlit.logger import logger
 from chainlit.oauth_providers import get_configured_oauth_providers
 
 from .cookie import (
-    OAuth2PasswordBearerWithCookie,
+    OAuth2PasswordBearerHeader,
     clear_auth_cookie,
-    get_token_from_cookies,
-    set_auth_cookie,
 )
 from .jwt import create_jwt, decode_jwt, get_jwt_secret
 from chainlit.modes import get_mode_from_request, mode_configs, get_mode_config
 
-reuseable_oauth = OAuth2PasswordBearerWithCookie(tokenUrl="/login", auto_error=False)
+reuseable_oauth = OAuth2PasswordBearerHeader(tokenUrl="/login", auto_error=False)
 
 
 def ensure_jwt_secret():
@@ -115,6 +113,4 @@ __all__ = [
     "create_jwt",
     "get_configuration",
     "get_current_user",
-    "get_token_from_cookies",
-    "set_auth_cookie",
 ]
