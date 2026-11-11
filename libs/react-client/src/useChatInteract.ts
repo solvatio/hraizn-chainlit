@@ -34,6 +34,7 @@ const useChatInteract = () => {
 
   const resetChatSettings = useResetRecoilState(chatSettingsInputsState);
   const resetSessionId = useResetRecoilState(sessionIdState);
+  const resetSession = useResetRecoilState(sessionState);
   const resetChatSettingsValue = useResetRecoilState(chatSettingsValueState);
 
   const setFirstUserInteraction = useSetRecoilState(firstUserInteraction);
@@ -50,6 +51,7 @@ const useChatInteract = () => {
   const clear = useCallback(() => {
     session?.socket.emit('clear_session');
     session?.socket.disconnect();
+    resetSession();
     setIdToResume(undefined);
     resetSessionId();
     setFirstUserInteraction(undefined);

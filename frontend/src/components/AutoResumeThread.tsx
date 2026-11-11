@@ -38,15 +38,17 @@ export default function AutoResumeThread({ id }: Props) {
     }
     if (session?.error) {
       toast.error("Couldn't resume chat");
-      navigate('/');
+      clear();
+      navigate('/', { replace: true });
     }
   }, [session, idToResume, id]);
 
   useEffect(() => {
     if (resumeThreadError) {
       toast.error("Couldn't resume chat: " + resumeThreadError);
-      navigate('/');
       setResumeThreadError(undefined);
+      clear();
+      navigate('/', { replace: true });
     }
   }, [resumeThreadError]);
 
