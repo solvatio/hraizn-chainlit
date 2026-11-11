@@ -1,3 +1,5 @@
+import { WIDGET_THREAD_PARAM } from './widgetThread';
+
 const CHAT_PARAMETERS_STORAGE_KEY = 'chainlit:chatParameters';
 const MAX_CHAT_PARAMETERS = 8;
 const MAX_CHAT_PARAMETER_VALUE_LENGTH = 50;
@@ -8,6 +10,8 @@ type ChatParameters = Record<string, string>;
 const sanitizeEntries = (entries: Iterable<[string, string]>): ChatParameters =>
   Object.fromEntries(
     Array.from(entries)
+      // UI control parameter of the widget, not a parameter of the conversation.
+      .filter(([key]) => key !== WIDGET_THREAD_PARAM)
       .slice(0, MAX_CHAT_PARAMETERS)
       .map(([key, value]) => [
         key,
