@@ -1,33 +1,51 @@
 import pytest
-from fastapi import FastAPI, Form
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.responses import Response
 
-from chainlit.auth import (
-    clear_auth_cookie,
-    get_token_from_cookies,
-    set_auth_cookie,
+from chainlit.auth import clear_auth_cookie
+from chainlit.auth.cookie import (
+    OAuth2PasswordBearerHeader,
+    clear_token_handoff_cookie,
+    get_token_from_handoff_cookie,
+    set_token_handoff_cookie,
 )
+
+bearer = OAuth2PasswordBearerHeader(tokenUrl="/login", auto_error=False)
+strict_bearer = OAuth2PasswordBearerHeader(tokenUrl="/login")
 
 
 @pytest.fixture
 def test_app():
     app = FastAPI()
 
-    @app.post("/set-cookie")
-    async def set_cookie_endpoint(request: Request, token: str = Form()):
-        response = Response()
-        set_auth_cookie(request, response, token)
-        return response
-
-    @app.get("/get-token")
-    async def get_token_endpoint(request: Request):
-        token = get_token_from_cookies(request.cookies)
+    @app.get("/token")
+    async def token_endpoint(token: str = Depends(bearer)):
         return {"token": token}
 
-    @app.delete("/clear-cookie")
-    async def clear_cookie_endpoint(request: Request):
+    @app.get("/strict-token")
+    async def strict_token_endpoint(token: str = Depends(strict_bearer)):
+        return {"token": token}
+
+    @app.post("/set-handoff")
+    async def set_handoff_endpoint(token: str):
+        response = Response()
+        set_token_handoff_cookie(response, token)
+        return response
+
+    @app.get("/get-handoff")
+    async def get_handoff_endpoint(request: Request):
+        return {"token": get_token_from_handoff_cookie(request)}
+
+    @app.delete("/clear-handoff")
+    async def clear_handoff_endpoint(request: Request):
+        response = Response()
+        clear_token_handoff_cookie(request, response)
+        return response
+
+    @app.delete("/clear-auth-cookie")
+    async def clear_auth_cookie_endpoint(request: Request):
         response = Response()
         clear_auth_cookie(request, response)
         return response
@@ -40,109 +58,59 @@ def client(test_app):
     return TestClient(test_app)
 
 
-def test_short_token(client):
-    """Test with a <3000 shorter token."""
+def test_token_is_read_from_authorization_header(client):
+    response = client.get("/token", headers={"Authorization": "Bearer abc"})
 
-    # Set a short token
-    short_token = "x" * 1000
-    set_response = client.post("/set-cookie", data={"token": short_token})
-    assert set_response.status_code == 200
-
-    # Verify cookies were set
-    cookies = set_response.cookies
-    assert cookies, "No cookies set"
-    assert "access_token" in cookies, f"No chunking for short cookies: {cookies}"
-
-    # Read back the token using client's cookie jar
-    get_response = client.get("/get-token")
-    assert get_response.status_code == 200
-    assert get_response.json()["token"] == short_token
+    assert response.json()["token"] == "abc"
 
 
-def test_set_and_read_4kb_token(client):
-    """Test full cookie lifecycle using actual client cookie handling."""
+def test_auth_cookie_is_not_accepted(client):
+    """The former auth cookie must no longer authenticate a request."""
+    client.cookies.set("access_token", "cookie-token")
 
-    # Set a 4KB token
-    token_4kb = "x" * 4000
-    set_response = client.post("/set-cookie", data={"token": token_4kb})
-    assert set_response.status_code == 200
+    response = client.get("/token")
 
-    # Verify cookies were set
-    cookies = set_response.cookies
-    assert f"{cookies.keys()} should contain chunked cookies", any(
-        key.startswith("access_token_") for key in cookies.keys()
-    )
-
-    # Read back the token using client's cookie jar
-    get_response = client.get("/get-token")
-    assert get_response.status_code == 200
-
-    response_token = get_response.json()["token"]
-    assert len(response_token) == len(token_4kb)
-    assert response_token == token_4kb
+    assert response.json()["token"] is None
 
 
-def test_overwrite_shorter_token_chunked(client):
-    """Test cookie chunk cleanup when replacing a large token with a smaller one."""
-    # Set initial long token
-    long_token = "LONG" * 2000  # 8000 characters
-    client.post("/set-cookie", data={"token": long_token})
+def test_non_bearer_scheme_is_rejected(client):
+    response = client.get("/token", headers={"Authorization": "Basic abc"})
 
-    # Verify initial chunks exist
-    first_cookies = client.cookies
-    assert len([k for k in first_cookies if k.startswith("access_token_")]) > 1
-
-    # Set shorter token (should clear previous chunks)
-    short_token = "SHORT" * 1000  # 4000 characters
-    client.post("/set-cookie", data={"token": short_token})
-
-    # Verify new cookie state
-    final_response = client.get("/get-token")
-    assert final_response.json()["token"] == short_token
-
-    # Verify only two chunks remain
-    final_cookies = client.cookies
-    chunk_cookies = [k for k in final_cookies if k.startswith("access_token_")]
-    assert len(chunk_cookies) == 2, f"Found {len(chunk_cookies)} residual cookies"
+    assert response.json()["token"] is None
 
 
-def test_overwrite_shorter_token_unchunked(client):
-    """Test cookie chunk cleanup when replacing a large token with a smaller one."""
-    # Set initial long token
-    long_token = "LONG" * 1000  # 4000 characters
-    client.post("/set-cookie", data={"token": long_token})
+def test_missing_token_raises_with_auto_error(client):
+    response = client.get("/strict-token")
 
-    # Verify initial chunks exist
-    first_cookies = client.cookies
-    assert len([k for k in first_cookies if k.startswith("access_token_")]) > 1
-
-    # Set shorter token (should clear previous chunks)
-    short_token = "SHORT"
-    client.post("/set-cookie", data={"token": short_token})
-
-    # Verify new cookie state
-    final_response = client.get("/get-token")
-    assert final_response.json()["token"] == short_token
-
-    # Verify no chunks remain
-    final_cookies = client.cookies
-    chunk_cookies = [k for k in final_cookies if k.startswith("access_token_")]
-    assert len(chunk_cookies) == 0, f"Found {len(chunk_cookies)} residual cookies"
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
-def test_clear_auth_cookie(client):
-    """Test cookie clearing removes all chunks."""
-    # Set initial token
-    client.post("/set-cookie", data={"token": "x" * 4000})
+def test_legacy_auth_cookies_are_cleared(client):
+    client.cookies.set("access_token", "legacy")
+    client.cookies.set("access_token_0", "legacy-chunk")
 
-    # Verify cookies exist
-    assert len(client.cookies) > 0
+    response = client.delete("/clear-auth-cookie")
 
-    # Clear cookies
-    clear_response = client.delete("/clear-cookie")
-    assert clear_response.status_code == 200
+    cleared = response.headers.get_list("set-cookie")
+    assert any(c.startswith("access_token=") for c in cleared)
+    assert any(c.startswith("access_token_0=") for c in cleared)
 
-    # Verify cookies were cleared
-    assert len(clear_response.cookies) == 0
-    final_response = client.get("/get-token")
-    assert final_response.json()["token"] is None
+
+@pytest.mark.parametrize("token", ["x" * 1000, "x" * 7000])
+def test_handoff_cookie_lifecycle(client, token):
+    """Short and chunked tokens survive the handoff and are removed afterwards."""
+    set_response = client.post("/set-handoff", params={"token": token})
+
+    set_cookies = set_response.headers.get_list("set-cookie")
+    assert set_cookies
+    for cookie in set_cookies:
+        lowered = cookie.lower()
+        assert "httponly" in lowered
+        assert "samesite=lax" in lowered
+        assert "max-age=60" in lowered
+
+    assert client.get("/get-handoff").json()["token"] == token
+
+    client.delete("/clear-handoff")
+    assert client.get("/get-handoff").json()["token"] is None

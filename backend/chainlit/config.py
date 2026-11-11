@@ -99,6 +99,9 @@ latex = false
 # Autoscroll new user messages at the top of the window
 user_message_autoscroll = true
 
+# Maximum number of characters allowed in a user message. 0 means no limit.
+max_char_limit = 0
+
 # Automatically tag threads with the current chat profile (if a chat profile is used)
 auto_tag_thread = true
 
@@ -318,6 +321,7 @@ class FeaturesSettings(BaseModel):
     slack: SlackFeature = Field(default_factory=SlackFeature)
     latex: bool = False
     user_message_autoscroll: bool = True
+    max_char_limit: int = Field(default=0, ge=0)
     unsafe_allow_html: bool = False
     auto_tag_thread: bool = True
     edit_message: bool = True

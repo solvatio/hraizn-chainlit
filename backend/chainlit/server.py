@@ -38,8 +38,10 @@ from chainlit.auth import create_jwt, decode_jwt, get_configuration, get_current
 from chainlit.auth.cookie import (
     clear_auth_cookie,
     clear_oauth_state_cookie,
-    set_auth_cookie,
+    clear_token_handoff_cookie,
+    get_token_from_handoff_cookie,
     set_oauth_state_cookie,
+    set_token_handoff_cookie,
     validate_oauth_state_cookie, clear_url_state_cookie, get_url_state_from_cookie,
     set_url_state_cookie,
 )
@@ -227,7 +229,29 @@ copilot_build_dir = get_build_dir(os.path.join("libs", "copilot"), "copilot")
 
 app = FastAPI(lifespan=lifespan)
 
-sio = socketio.AsyncServer(cors_allowed_origins=[], async_mode="asgi")
+
+def get_socket_max_http_buffer_size() -> int:
+    default_size = 1_000_000
+    raw_size = os.getenv("CHAINLIT_MAX_HTTP_BUFFER_SIZE", str(default_size))
+    try:
+        size = int(raw_size)
+        if size > 0:
+            return size
+    except ValueError:
+        pass
+
+    logger.warning(
+        "Ignoring invalid CHAINLIT_MAX_HTTP_BUFFER_SIZE value; "
+        "expected a positive integer"
+    )
+    return default_size
+
+
+sio = socketio.AsyncServer(
+    cors_allowed_origins=[],
+    async_mode="asgi",
+    max_http_buffer_size=get_socket_max_http_buffer_size(),
+)
 
 asgi_app = socketio.ASGIApp(socketio_server=sio, socketio_path="")
 
@@ -499,28 +523,33 @@ async def auth(request: Request):
 
 
 def _get_response_dict(access_token: str) -> dict:
-    """Get the response dictionary for the auth response."""
+    """Get the response dictionary for the auth response.
 
-    return {"success": True}
+    The access token is returned in the body. The client stores it and sends it
+    as bearer token; no auth cookie is set.
+    """
+
+    return {"success": True, "access_token": access_token}
 
 
 def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Optional[str], request: Request) -> Response:
     """Get the redirect params for the OAuth callback."""
 
-    response_dict = _get_response_dict(access_token)
-
     if redirect_to_callback:
-        root_path = os.environ.get("CHAINLIT_ROOT_PATH", "")
-        root_path = "" if root_path == "/" else root_path
-        url_state = get_url_state_from_cookie(request)
+        url_state = get_url_state_from_cookie(request) or ""
 
-        return RedirectResponse(
+        # The token must never be part of a URL. It is handed over in a
+        # short-lived HttpOnly cookie which the frontend callback page
+        # exchanges once via POST /auth/token.
+        response = RedirectResponse(
             # FIXME: redirect to the right frontend base url to improve the dev environment
-            url=url_state,
+            url=url_state.rstrip("/") + "/login/callback",
             status_code=302,
         )
+        set_token_handoff_cookie(response, access_token)
+        return response
 
-    return JSONResponse(response_dict)
+    return JSONResponse(_get_response_dict(access_token))
 
 
 def _get_oauth_redirect_error(request: Request, error: str) -> Response:
@@ -555,8 +584,30 @@ async def _authenticate_user(
 
     response = _get_auth_response(access_token, redirect_to_callback, mode, request)
 
-    set_auth_cookie(request, response, access_token)
+    # Remove auth cookies of the former cookie based authentication.
+    clear_auth_cookie(request, response)
 
+    return response
+
+
+@router.post("/auth/token")
+async def exchange_token(request: Request):
+    """Exchange the handoff cookie of a redirect based login for the access token."""
+    token = get_token_from_handoff_cookie(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        user = decode_jwt(token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Unauthorized") from e
+
+    if user.metadata.get("mode", None) != get_mode_from_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    response = JSONResponse(_get_response_dict(token))
+    # One-time use: the cookie is removed with the first successful exchange.
+    clear_token_handoff_cookie(request, response)
     return response
 
 
@@ -585,7 +636,9 @@ async def login(
 @router.post("/logout")
 async def logout(request: Request, response: Response):
     """Logout the user by calling the on_logout callback."""
+    # The client drops its bearer token. Only leftovers are removed here.
     clear_auth_cookie(request, response)
+    clear_token_handoff_cookie(request, response)
 
     if config.code.on_logout:
         return await config.code.on_logout(request, response)
@@ -617,9 +670,17 @@ async def jwt_auth(request: Request):
 
     try:
         user = decode_jwt(token)
-        return await _authenticate_user(request, user)
     except InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user.metadata.get("mode", None) != get_mode_from_request(request):
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    # Hand back the validated token unchanged. Issuing a fresh token here would
+    # allow extending a session forever beyond user_session_timeout.
+    response = JSONResponse(_get_response_dict(token))
+    clear_auth_cookie(request, response)
+    return response
 
 
 @router.post("/auth/header")

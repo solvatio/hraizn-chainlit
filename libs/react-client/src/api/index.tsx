@@ -3,6 +3,13 @@ import { IElement, IThread, IUser } from 'src/types';
 import { IAction } from 'src/types/action';
 import { IFeedback } from 'src/types/feedback';
 
+import {
+  clearToken,
+  readToken,
+  tokenStorageKey,
+  writeToken
+} from './tokenStorage';
+
 export * from './hooks/auth';
 export * from './hooks/api';
 
@@ -50,6 +57,25 @@ export class APIBase {
     public on401?: () => void,
     public onError?: (error: ClientError) => void
   ) {}
+
+  /** The access token of this chat endpoint, if the user is logged in. */
+  getToken(): string | undefined {
+    return readToken(tokenStorageKey(this.httpEndpoint));
+  }
+
+  setToken(token: string) {
+    writeToken(tokenStorageKey(this.httpEndpoint), token);
+  }
+
+  clearToken() {
+    clearToken(tokenStorageKey(this.httpEndpoint));
+  }
+
+  /** Authorization header for requests that do not go through `fetch`. */
+  authHeaders(): { Authorization?: string } {
+    const token = this.getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
 
   buildEndpoint(path: string) {
     let fullUrl = `${this.httpEndpoint}${path}`;
@@ -129,8 +155,19 @@ export class APIBase {
         body = data ? JSON.stringify(data) : null;
       }
 
+      // The bearer token is the only credential of the chat. An explicitly
+      // passed Authorization header (e.g. jwtAuth) takes precedence.
+      const storedToken = this.getToken();
+      if (storedToken && !headers.Authorization) {
+        headers.Authorization = `Bearer ${storedToken}`;
+      }
+      const sentStoredToken =
+        !!storedToken && headers.Authorization === `Bearer ${storedToken}`;
+
       const res = await fetch(this.buildEndpoint(path), {
         method,
+        // Not used for authentication. Kept for the short-lived login handoff
+        // cookie and for load balancer affinity cookies.
         credentials: 'include',
         headers,
         signal,
@@ -138,6 +175,16 @@ export class APIBase {
       });
 
       if (!res.ok) {
+        // The backend rejected the stored token (expired or invalid): drop
+        // it so that the next login starts clean.
+        if (
+          res.status === 401 &&
+          sentStoredToken &&
+          this.getToken() === storedToken
+        ) {
+          this.clearToken();
+        }
+
         const detail = await this.getDetailFromErrorResponse(res);
 
         throw new ClientError(res.statusText, res.status, detail);
@@ -172,16 +219,50 @@ export class APIBase {
 }
 
 export class ChainlitAPI extends APIBase {
+  /** Stores the access token of a login response. */
+  private async storeLoginToken(res: Response) {
+    const json = await res.json();
+    if (typeof json?.access_token === 'string' && json.access_token) {
+      this.setToken(json.access_token);
+      // The token stays inside the API client.
+      delete json.access_token;
+    }
+    return json;
+  }
+
   async headerAuth() {
     const res = await this.post(`/auth/header`, {});
-    return res.json();
+    return this.storeLoginToken(res);
   }
 
   async jwtAuth(token: string) {
     const res = await this.fetch('POST', '/auth/jwt', undefined, undefined, {
       Authorization: `Bearer ${token}`
     });
-    return res.json();
+    return this.storeLoginToken(res);
+  }
+
+  /**
+   * Completes a redirect based login (OAuth): exchanges the short-lived
+   * handoff cookie set by the backend callback for the access token.
+   */
+  async exchangeToken() {
+    const res = await this.post(`/auth/token`, {});
+    return this.storeLoginToken(res);
+  }
+
+  /**
+   * Like exchangeToken, but returns the access token without storing it.
+   * Used by the login popup of an embedded chat, which passes the token on
+   * to the chat window instead of keeping it in its own storage.
+   */
+  async exchangeTokenForHandover(): Promise<string> {
+    const res = await this.post(`/auth/token`, {});
+    const json = await res.json();
+    if (typeof json?.access_token !== 'string' || !json.access_token) {
+      throw new ClientError('Unauthorized', 401);
+    }
+    return json.access_token;
   }
 
   async stickyCookie(sessionId: string) {
@@ -193,7 +274,7 @@ export class ChainlitAPI extends APIBase {
 
   async passwordAuth(data: FormData) {
     const res = await this.post(`/login`, data);
-    return res.json();
+    return this.storeLoginToken(res);
   }
 
   async getUser(): Promise<IUser> {
@@ -202,8 +283,13 @@ export class ChainlitAPI extends APIBase {
   }
 
   async logout() {
-    const res = await this.post(`/logout`, {});
-    return res.json();
+    try {
+      const res = await this.post(`/logout`, {});
+      return await res.json();
+    } finally {
+      // The token is dropped even if the backend could not be reached.
+      this.clearToken();
+    }
   }
 
   async setFeedback(
@@ -264,6 +350,9 @@ export class ChainlitAPI extends APIBase {
         ),
         true
       );
+
+      const { Authorization } = this.authHeaders();
+      if (Authorization) xhr.setRequestHeader('Authorization', Authorization);
 
       // Track the progress of the upload
       xhr.upload.onprogress = function (event) {
@@ -366,6 +455,31 @@ export class ChainlitAPI extends APIBase {
   getElementUrl(id: string, sessionId: string) {
     const queryParams = `?session_id=${sessionId}`;
     return this.buildEndpoint(`/project/file/${id}${queryParams}`);
+  }
+
+  /** True for files of a chat session, which need the access token. */
+  isSessionFileUrl(url: string): boolean {
+    return url.startsWith(this.buildEndpoint('/project/file/'));
+  }
+
+  /**
+   * Loads a session file with the access token and returns a blob URL for
+   * use in `src`/`href` attributes, which cannot send headers. The token is
+   * never added to the URL. The caller revokes the blob URL when done.
+   */
+  async fetchSessionFileBlobUrl(
+    url: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: this.authHeaders(),
+      signal
+    });
+    if (!res.ok) {
+      throw new ClientError(res.statusText, res.status);
+    }
+    return URL.createObjectURL(await res.blob());
   }
 
   getLogoEndpoint(theme: string, configuredLogoUrl?: string) {

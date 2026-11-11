@@ -129,6 +129,8 @@ const useChatSession = () => {
         auth: {
           clientType: client.type,
           sessionId,
+          // Access token: cookies are not used for authentication.
+          token: client.getToken() || '',
           threadId: idToResume || '',
           userEnv: JSON.stringify(userEnv),
           chatParameters: JSON.stringify(chatParameters),

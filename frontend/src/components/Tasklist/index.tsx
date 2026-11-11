@@ -1,7 +1,12 @@
 import { cn } from '@/lib/utils';
+import { useContext } from 'react';
 import useSWR from 'swr';
 
-import { useChatData, useConfig } from '@chainlit/react-client';
+import {
+  ChainlitContext,
+  useChatData,
+  useConfig
+} from '@chainlit/react-client';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -11,9 +16,6 @@ import { ITaskList, Task } from './Task';
 interface HeaderProps {
   status: string;
 }
-
-const fetcher = (url: string) =>
-  fetch(url, { credentials: 'include' }).then((r) => r.json());
 
 const Header = ({ status }: HeaderProps) => {
   return (
@@ -33,6 +35,16 @@ const TaskList = ({ isMobile, isCopilot }: TaskListProps) => {
   const { tasklists } = useChatData();
   const tasklist = tasklists[tasklists.length - 1];
   const { config } = useConfig();
+  const apiClient = useContext(ChainlitContext);
+
+  // The access token is only ever sent to the chat backend.
+  const fetcher = (url: string) =>
+    fetch(url, {
+      credentials: 'include',
+      headers: url.startsWith(apiClient.httpEndpoint)
+        ? apiClient.authHeaders()
+        : {}
+    }).then((r) => r.json());
 
   const allowHtml = config?.features?.unsafe_allow_html;
   const latex = config?.features?.latex;
