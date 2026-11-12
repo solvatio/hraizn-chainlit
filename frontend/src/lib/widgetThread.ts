@@ -1,3 +1,5 @@
+import { SocketConnectError } from '@chainlit/react-client';
+
 // Persists the current thread of an embedded widget chat so that a full page
 // navigation of the host page (which reloads the chat iframe) can resume the
 // conversation. Browsers partition iframe storage by top-level site, so all pages
@@ -14,9 +16,12 @@ export const WIDGET_THREAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const WIDGET_THREAD_PARAM = 'hraiznThread';
 
 // Socket.IO connect errors raised by the backend when a thread cannot be resumed
-// (see backend/chainlit/socket.py). Transport errors are deliberately not listed:
-// a temporary network failure must not drop the stored conversation.
-const RESUME_REJECTIONS = new Set(['thread not found', 'authorization failed']);
+// (see backend/chainlit/socket_errors.py). Transport errors are deliberately not
+// listed: a temporary network failure must not drop the stored conversation.
+const RESUME_REJECTIONS = new Set<string>([
+  SocketConnectError.THREAD_NOT_FOUND,
+  SocketConnectError.AUTHORIZATION_FAILED
+]);
 
 const THREAD_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

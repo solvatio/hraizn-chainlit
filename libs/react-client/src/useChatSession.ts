@@ -56,6 +56,7 @@ import {
 import { OutputAudioChunk } from './types/audio';
 
 import { ChainlitContext } from './context';
+import { SocketConnectError } from './socketErrors';
 import type { IToken } from './useChatData';
 
 const useChatSession = () => {
@@ -218,7 +219,7 @@ const useChatSession = () => {
       socket.on('connect_error', (err) => {
         setSession((s) => ({ ...s!, error: true }));
         // The access token expired while the page was open: sign in again.
-        if (err?.message === 'authentication failed') {
+        if (err?.message === SocketConnectError.AUTHENTICATION_FAILED) {
           client.handleSocketAuthFailure();
         }
       });

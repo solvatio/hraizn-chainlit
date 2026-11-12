@@ -20,7 +20,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('App', () => ({ default: () => null }));
 vi.mock('lib/router', () => ({ default: () => '/example/m/widget' }));
-vi.mock('@chainlit/react-client', () => ({
+vi.mock('@chainlit/react-client', async () => ({
+  // Real constants: the app imports them while its modules are loaded.
+  ...(await import('../../libs/react-client/src/socketErrors')),
   useAuth: () => ({ data: {}, isAuthenticated: true, isReady: true }),
   useConfig: () => ({ language: mocks.language, config: mocks.config }),
   useApi: () => ({ data: mocks.translations }),
