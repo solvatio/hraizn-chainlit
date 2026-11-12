@@ -408,30 +408,57 @@ function fontFixture({origin = shop} = {}) {
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-test('host font bytes cannot override the dashboard font, but size-only still works', async () => {
-    const f = fontFixture(); f.ready(); f.font({size: 18}); await settle();
-    assert.equal(f.added.length, 0); assert.equal(f.props.size, 0); assert.equal(f.style.fontSize, '18px');
-    assert.equal(f.style.fontSize, '18px'); assert.equal(f.added.length, 0); assert.equal(f.props.size, 0);
-    f.bridge.dispose();
+test('host font from the bound parent is registered and becomes the chat font', async () => {
+    const f = fontFixture(); f.ready(); f.font(); await settle();
+    assert.equal(f.added.length, 1); assert.equal(f.added[0].family, 'Chalet Comprime');
+    assert.deepEqual(f.added[0].descriptors, {weight: '400', style: 'normal', display: 'swap'});
+    assert.equal(f.props.get('--font-sans'), '"Chalet Comprime", \'Inter\', sans-serif');
+    f.font({family: 'Other'}); await settle(); assert.equal(f.added.length, 1); f.bridge.dispose();
 });
 
-test('chat size is accepted only from the bound parent after ready', async () => {
-    const f = fontFixture(); f.receive({type: 'font', size: 18}); await settle();
-    assert.equal(f.style.fontSize, ''); f.ready();
-    f.receive({type: 'font', size: 18}, {origin: 'https://evil.example'});
-    f.receive({type: 'font', size: 18}, {source: {}}); await settle();
-    assert.equal(f.style.fontSize, ''); f.bridge.dispose();
+test('host font is ignored before ready, from other windows or origins', async () => {
+    const f = fontFixture(); f.font(); await settle(); assert.equal(f.added.length, 0);
+    f.ready(); f.font({}, {origin: 'https://evil.example'}); f.font({}, {source: {}}); await settle();
+    assert.equal(f.added.length, 0); assert.equal(f.props.size, 0); f.bridge.dispose();
 });
 
-test('only bounded integer sizes are accepted and legacy font fields have no effect', () => {
-    for (const size of [12, 18, 20]) assert.deepEqual(parseHostFont({size}), {size});
-    assert.deepEqual(parseHostFont({size: 18, family: 'Scala', faces: []}), {size: 18});
-    for (const message of [{}, {size: 11}, {size: 21}, {size: 16.5}, {size: '18'}]) assert.equal(parseHostFont(message), null);
+test('host font size scales the chat root, with or without font faces', async () => {
+    const f = fontFixture(); f.ready(); f.font({size: 17}); await settle();
+    assert.equal(f.style.fontSize, '17px'); assert.equal(f.added.length, 1); f.bridge.dispose();
+    const g = fontFixture(); g.ready(); g.receive({type: 'font', size: 15}); await settle();
+    assert.equal(g.style.fontSize, '15px'); assert.equal(g.added.length, 0); assert.equal(g.props.size, 0); g.bridge.dispose();
+    const h = fontFixture(); h.font({size: 18}); h.ready(); h.font({size: 30}); await settle();
+    assert.equal(h.style.fontSize, ''); h.bridge.dispose();
 });
 
-test('a host without actions can preserve size without changing branding', async () => {
-    const f = fontFixture(); f.receive({type: 'ready', actions: []}); f.receive({type: 'font', size: 18}); await settle();
-    assert.equal(f.style.fontSize, '18px'); assert.equal(f.props.size, 0); f.bridge.dispose();
+test('invalid host font payloads are rejected', () => {
+    const face = {data: new ArrayBuffer(8), weight: '400', style: 'normal'};
+    assert.ok(parseHostFont({family: 'Chalet Comprime', faces: [face]}));
+    for (const message of [
+        {family: 'x"; color: red', faces: [face]}, {family: 'Chalet', faces: []},
+        {family: 'Chalet', faces: Array(5).fill(face)}, {family: 'Chalet', faces: [{...face, data: 'AAAA'}]},
+        {family: 'Chalet', faces: [{...face, data: new ArrayBuffer(1024 * 1024 + 1)}]},
+        {family: 'Chalet', faces: [{...face, weight: 'bold;'}]}, {family: 'Chalet', faces: [{...face, style: 'oblique'}]},
+        {}, {size: 11}, {size: 21}, {size: 16.5}, {size: '16px'}, {size: 16, family: 'Chalet'},
+        {family: 'Chalet Comprime', faces: [face], size: 100}
+    ]) assert.equal(parseHostFont(message), null);
+    assert.deepEqual(parseHostFont({size: 16}), {family: null, faces: [], size: 16});
+});
+
+test('a failing font load keeps the default chat font', async () => {
+    const doc = {fonts: {add() { throw new Error('unexpected'); }}, documentElement: {style: {setProperty() { throw new Error('unexpected'); }}}};
+    class Broken { load() { return Promise.reject(new Error('corrupt font')); } }
+    await assert.rejects(applyHostFont({FontFace: Broken}, doc, {family: 'Chalet', faces: [{data: new ArrayBuffer(4), weight: '400', style: 'normal'}], size: null}));
+    assert.equal(await applyHostFont({}, doc, {family: 'Chalet', faces: [], size: null}), false);
+    // A failing font download does not undo the size, which applies first.
+    await assert.rejects(applyHostFont({FontFace: Broken}, doc, {family: 'Chalet', faces: [{data: new ArrayBuffer(4), weight: '400', style: 'normal'}], size: 18}));
+    assert.equal(doc.documentElement.style.fontSize, '18px');
+});
+
+test('a host without actions binds for typography only and exposes no action', async () => {
+    assert.deepEqual(parseHostActions([]), []);
+    const f = fontFixture(); f.receive({type: 'ready', actions: []}); f.font(); await settle();
+    assert.equal(f.bridge.parentOrigin, shop); assert.equal(f.added.length, 1); f.bridge.dispose();
 });
 
 test('action links stay unavailable when the host registered no action', () => {
