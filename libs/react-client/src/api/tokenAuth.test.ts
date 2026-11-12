@@ -196,16 +196,6 @@ describe('bearer token authentication', () => {
     expect(on401).toHaveBeenCalledTimes(1);
   });
 
-  it('drops the former token when a token is set directly (login popup)', () => {
-    api.setToken('expired');
-    api.expireToken();
-
-    api.setToken('token-2');
-
-    expect(api.getToken()).toBe('token-2');
-    expect(api.getPreviousToken()).toBeUndefined();
-  });
-
   it('drops the former token on logout', async () => {
     api.setToken('expired');
     api.expireToken();

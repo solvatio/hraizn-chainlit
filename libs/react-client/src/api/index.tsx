@@ -64,11 +64,8 @@ export class APIBase {
     return readToken(tokenStorageKey(this.httpEndpoint));
   }
 
-  /** Stores the token of a new login. A former rejected token is dropped. */
   setToken(token: string) {
-    const key = tokenStorageKey(this.httpEndpoint);
-    clearToken(previousTokenKey(key));
-    writeToken(key, token);
+    writeToken(tokenStorageKey(this.httpEndpoint), token);
   }
 
   /** Drops the access token and the former token kept for renewal. */
@@ -252,6 +249,7 @@ export class ChainlitAPI extends APIBase {
   private async storeLoginToken(res: Response) {
     const json = await res.json();
     if (typeof json?.access_token === 'string' && json.access_token) {
+      this.clearToken();
       this.setToken(json.access_token);
       // The token stays inside the API client.
       delete json.access_token;
