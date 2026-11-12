@@ -37,7 +37,12 @@ export default function LoginAnon() {
   };
 
   const handleAnonymousLogin = async () => {
-    await handleAuth(apiClient.anonymousAuth());
+    const formData = new FormData();
+    formData.append('username', 'anon');
+    formData.append('password', 'anon');
+
+    const jsonPromise = apiClient.passwordAuth(formData);
+    await handleAuth(jsonPromise);
   };
 
   useEffect(() => {

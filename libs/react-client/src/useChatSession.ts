@@ -215,12 +215,8 @@ const useChatSession = () => {
         );
       });
 
-      socket.on('connect_error', (err) => {
+      socket.on('connect_error', (_) => {
         setSession((s) => ({ ...s!, error: true }));
-        // The access token expired while the page was open: sign in again.
-        if (err?.message === 'authentication failed') {
-          client.handleSocketAuthFailure();
-        }
       });
 
       socket.on('task_start', () => {

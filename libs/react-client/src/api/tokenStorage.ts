@@ -9,9 +9,6 @@
 // The token must never be put into URLs, logs or messages to a host page.
 
 const STORAGE_KEY_PREFIX = 'hraizn:accessToken:';
-// A token the backend no longer accepts (expired). It is kept so that an
-// anonymous user can sign in again with the same identity.
-const PREVIOUS_KEY_PREFIX = 'hraizn:previousToken:';
 
 // Fallback for contexts in which storage is unavailable (e.g. blocked site
 // data). The session then lasts until the page is reloaded.
@@ -26,10 +23,6 @@ export const tokenStorageKey = (httpEndpoint: string): string => {
   }
   return STORAGE_KEY_PREFIX + path;
 };
-
-/** Key of the former token belonging to an access token key. */
-export const previousTokenKey = (tokenKey: string): string =>
-  PREVIOUS_KEY_PREFIX + tokenKey.slice(STORAGE_KEY_PREFIX.length);
 
 export const readToken = (key: string): string | undefined => {
   try {

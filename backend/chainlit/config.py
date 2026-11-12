@@ -419,9 +419,7 @@ class CodeSettings(BaseModel):
     ] = None
     # Auth callbacks
     password_auth_callback: Optional[
-        Callable[
-            [str, str, Optional[str], Optional["User"]], Awaitable[Optional["User"]]
-        ]
+        Callable[[str, str, Optional[str]], Awaitable[Optional["User"]]]
     ] = None
     header_auth_callback: Optional[Callable[[Headers], Awaitable[Optional["User"]]]] = (
         None
