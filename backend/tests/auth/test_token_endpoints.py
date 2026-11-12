@@ -105,3 +105,46 @@ async def test_socket_connection_ignores_auth_cookie():
     environ = {"HTTP_COOKIE": "access_token=cookie-token", "PATH_INFO": ""}
 
     assert await _authenticate_connection(environ, {}) == (None, None)
+
+
+def _lifetime(token: str) -> int:
+    import jwt as pyjwt
+
+    claims = pyjwt.decode(token, options={"verify_signature": False})
+    return claims["exp"] - claims["iat"]
+
+
+@pytest.mark.parametrize(
+    "metadata, expected",
+    [
+        ({"mode": None, "anonymous": True}, 3153600000),
+        ({"mode": None, "anonymous": False}, 43200),
+        ({"mode": None}, 43200),
+        ({"mode": None, "anonymous": "true"}, 43200),
+    ],
+)
+def test_anonymous_users_get_their_own_token_lifetime(
+    client, test_config, monkeypatch, metadata, expected
+):
+    monkeypatch.setattr(test_config.project, "user_session_timeout", 43200)
+    monkeypatch.setattr(
+        test_config.project, "anonymous_user_session_timeout", 3153600000
+    )
+    monkeypatch.setattr("chainlit.auth.jwt.config", test_config)
+
+    token = create_jwt(User(identifier="u", metadata=metadata))
+
+    assert abs(_lifetime(token) - expected) <= 1
+    assert decode_jwt(token).identifier == "u"
+
+
+def test_without_anonymous_lifetime_all_users_get_the_session_timeout(
+    client, test_config, monkeypatch
+):
+    monkeypatch.setattr(test_config.project, "user_session_timeout", 43200)
+    monkeypatch.setattr(test_config.project, "anonymous_user_session_timeout", None)
+    monkeypatch.setattr("chainlit.auth.jwt.config", test_config)
+
+    token = create_jwt(User(identifier="u", metadata={"anonymous": True}))
+
+    assert abs(_lifetime(token) - 43200) <= 1

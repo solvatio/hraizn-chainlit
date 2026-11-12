@@ -455,6 +455,9 @@ class ProjectSettings(BaseModel):
     session_timeout: int = 300
     # Duration (in seconds) of the user session expiry
     user_session_timeout: int = 1296000  # 15 days
+    # Duration (in seconds) of the session expiry of anonymous users, i.e. users
+    # with metadata["anonymous"] == True. Defaults to user_session_timeout.
+    anonymous_user_session_timeout: Optional[int] = None
     # Enable third parties caching (e.g LangChain cache)
     cache: bool = False
     # Whether to persist user environment variables (API keys) to the database
