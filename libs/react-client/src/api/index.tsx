@@ -218,6 +218,10 @@ export class APIBase {
   }
 }
 
+// A refused socket connection triggers a new login at most this often.
+const SOCKET_AUTH_RETRY_MS = 30_000;
+let socketAuthFailureHandled = false;
+
 export class ChainlitAPI extends APIBase {
   /** Stores the access token of a login response. */
   private async storeLoginToken(res: Response) {
@@ -275,6 +279,27 @@ export class ChainlitAPI extends APIBase {
   async passwordAuth(data: FormData) {
     const res = await this.post(`/login`, data);
     return this.storeLoginToken(res);
+  }
+
+  /**
+   * Called when the backend refused the socket connection because of the
+   * access token (expired or invalid). The token is dropped and the chat
+   * signs in again. Returns false if this just happened, to avoid a loop.
+   */
+  handleSocketAuthFailure(): boolean {
+    const key = 'hraizn:socketAuthFailure';
+    try {
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (Date.now() - last < SOCKET_AUTH_RETRY_MS) return false;
+      sessionStorage.setItem(key, String(Date.now()));
+    } catch {
+      // Without session storage the login is retried once per page load.
+      if (socketAuthFailureHandled) return false;
+    }
+    socketAuthFailureHandled = true;
+    this.clearToken();
+    this.on401?.();
+    return true;
   }
 
   async getUser(): Promise<IUser> {

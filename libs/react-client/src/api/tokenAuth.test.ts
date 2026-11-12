@@ -145,6 +145,23 @@ describe('bearer token authentication', () => {
     expect(api.getToken()).toBeUndefined();
   });
 
+  it('signs in again when the socket connection is refused', () => {
+    vi.stubGlobal('sessionStorage', createStorage());
+    const on401 = vi.fn();
+    api.on401 = on401;
+    api.setToken('expired');
+
+    expect(api.handleSocketAuthFailure()).toBe(true);
+    expect(api.getToken()).toBeUndefined();
+    expect(on401).toHaveBeenCalledTimes(1);
+
+    // A second refusal right after must not start a login loop.
+    api.setToken('token-2');
+    expect(api.handleSocketAuthFailure()).toBe(false);
+    expect(api.getToken()).toBe('token-2');
+    expect(on401).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the token on errors other than 401', async () => {
     api.setToken('token-1');
     fetchMock.mockResolvedValue(jsonResponse(503, { detail: 'Unavailable' }));
