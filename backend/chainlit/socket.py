@@ -20,7 +20,6 @@ from chainlit.logger import logger
 from chainlit.message import ErrorMessage, Message
 from chainlit.server import sio
 from chainlit.session import ClientType, WebsocketSession
-from chainlit.socket_errors import SocketConnectError
 from chainlit.types import (
     InputAudioChunk,
     InputAudioChunkPayload,
@@ -223,7 +222,7 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
 
         if not user:
             logger.error("Authentication failed in websocket connect.")
-            raise ConnectionRefusedError(SocketConnectError.AUTHENTICATION_FAILED)
+            raise ConnectionRefusedError("authentication failed")
 
         if thread_id:
             data_layer = get_data_layer()
@@ -235,11 +234,11 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
                 author = await data_layer.get_thread_author(thread_id)
             except Exception as e:
                 logger.exception("Problem resuming thread: thread_id=%s", thread_id)
-                raise ConnectionRefusedError(SocketConnectError.THREAD_NOT_FOUND)
+                raise ConnectionRefusedError("thread not found")
 
             if not (author == user.identifier):
                 logger.error("Authorization for the thread failed.")
-                raise ConnectionRefusedError(SocketConnectError.AUTHORIZATION_FAILED)
+                raise ConnectionRefusedError("authorization failed")
 
     # Session scoped function to emit to the client
     def emit_fn(event, data):
