@@ -5,6 +5,7 @@ import { IFeedback } from 'src/types/feedback';
 
 import {
   clearToken,
+  previousTokenKey,
   readToken,
   tokenStorageKey,
   writeToken
@@ -67,8 +68,29 @@ export class APIBase {
     writeToken(tokenStorageKey(this.httpEndpoint), token);
   }
 
+  /** Drops the access token and the former token kept for renewal. */
   clearToken() {
-    clearToken(tokenStorageKey(this.httpEndpoint));
+    const key = tokenStorageKey(this.httpEndpoint);
+    clearToken(key);
+    clearToken(previousTokenKey(key));
+  }
+
+  /**
+   * Called when the backend no longer accepts the access token: the token is
+   * no longer sent, but kept so that an anonymous login can continue with
+   * the same identity.
+   */
+  expireToken() {
+    const key = tokenStorageKey(this.httpEndpoint);
+    const token = readToken(key);
+    if (!token) return;
+    writeToken(previousTokenKey(key), token);
+    clearToken(key);
+  }
+
+  /** The token of the former login, if the backend rejected it. */
+  getPreviousToken(): string | undefined {
+    return readToken(previousTokenKey(tokenStorageKey(this.httpEndpoint)));
   }
 
   /** Authorization header for requests that do not go through `fetch`. */
@@ -175,14 +197,14 @@ export class APIBase {
       });
 
       if (!res.ok) {
-        // The backend rejected the stored token (expired or invalid): drop
-        // it so that the next login starts clean.
+        // The backend rejected the stored token (expired or invalid): stop
+        // sending it. It is kept for the renewal of an anonymous login.
         if (
           res.status === 401 &&
           sentStoredToken &&
           this.getToken() === storedToken
         ) {
-          this.clearToken();
+          this.expireToken();
         }
 
         const detail = await this.getDetailFromErrorResponse(res);
@@ -218,11 +240,16 @@ export class APIBase {
   }
 }
 
+// A refused socket connection triggers a new login at most this often.
+const SOCKET_AUTH_RETRY_MS = 30_000;
+let socketAuthFailureHandled = false;
+
 export class ChainlitAPI extends APIBase {
   /** Stores the access token of a login response. */
   private async storeLoginToken(res: Response) {
     const json = await res.json();
     if (typeof json?.access_token === 'string' && json.access_token) {
+      this.clearToken();
       this.setToken(json.access_token);
       // The token stays inside the API client.
       delete json.access_token;
@@ -275,6 +302,42 @@ export class ChainlitAPI extends APIBase {
   async passwordAuth(data: FormData) {
     const res = await this.post(`/login`, data);
     return this.storeLoginToken(res);
+  }
+
+  /**
+   * Signs in as anonymous user. A former token is sent along, so that the
+   * backend can hand out the same anonymous identity again and the user can
+   * continue the conversation.
+   */
+  async anonymousAuth() {
+    const data = new FormData();
+    data.append('username', 'anon');
+    data.append('password', 'anon');
+    const previousToken = this.getPreviousToken();
+    if (previousToken) {
+      data.append('previous_token', previousToken);
+    }
+    return this.passwordAuth(data);
+  }
+
+  /**
+   * Called when the backend refused the socket connection because of the
+   * access token. Returns false if this just happened, to avoid a login loop.
+   */
+  handleSocketAuthFailure(): boolean {
+    const key = 'hraizn:socketAuthFailure';
+    try {
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (Date.now() - last < SOCKET_AUTH_RETRY_MS) return false;
+      sessionStorage.setItem(key, String(Date.now()));
+    } catch {
+      // Without session storage the login is retried once per page load.
+      if (socketAuthFailureHandled) return false;
+    }
+    socketAuthFailureHandled = true;
+    this.expireToken();
+    this.on401?.();
+    return true;
   }
 
   async getUser(): Promise<IUser> {

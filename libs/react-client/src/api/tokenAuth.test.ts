@@ -145,6 +145,67 @@ describe('bearer token authentication', () => {
     expect(api.getToken()).toBeUndefined();
   });
 
+  it('keeps a rejected token for the renewal of an anonymous login', async () => {
+    api.setToken('expired');
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, { detail: 'Unauthorized' })
+    );
+    await expect(api.get('/user')).rejects.toMatchObject({ status: 401 });
+    expect(api.getPreviousToken()).toBe('expired');
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { success: true, access_token: 'token-2' })
+    );
+    await api.anonymousAuth();
+
+    const [url, init] = fetchMock.mock.calls[1];
+    const body = init.body as FormData;
+    expect(String(url)).toBe(ENDPOINT + '/login');
+    expect(String(url)).not.toContain('expired');
+    expect(body.get('username')).toBe('anon');
+    expect(body.get('previous_token')).toBe('expired');
+    expect(init.headers.Authorization).toBeUndefined();
+    expect(api.getToken()).toBe('token-2');
+    expect(api.getPreviousToken()).toBeUndefined();
+  });
+
+  it('signs in anonymously without a former token', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, { success: true, access_token: 'token-1' })
+    );
+
+    await api.anonymousAuth();
+
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.has('previous_token')).toBe(false);
+  });
+
+  it('signs in again when the socket connection is refused', () => {
+    vi.stubGlobal('sessionStorage', createStorage());
+    const on401 = vi.fn();
+    api.on401 = on401;
+    api.setToken('expired');
+
+    expect(api.handleSocketAuthFailure()).toBe(true);
+    expect(api.getToken()).toBeUndefined();
+    expect(api.getPreviousToken()).toBe('expired');
+    expect(on401).toHaveBeenCalledTimes(1);
+
+    // A second refusal right after must not start a login loop.
+    expect(api.handleSocketAuthFailure()).toBe(false);
+    expect(on401).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the former token on logout', async () => {
+    api.setToken('expired');
+    api.expireToken();
+    fetchMock.mockResolvedValue(jsonResponse(200, { success: true }));
+
+    await api.logout();
+
+    expect(api.getPreviousToken()).toBeUndefined();
+  });
+
   it('keeps the token on errors other than 401', async () => {
     api.setToken('token-1');
     fetchMock.mockResolvedValue(jsonResponse(503, { detail: 'Unavailable' }));

@@ -35,6 +35,7 @@ from typing_extensions import Annotated
 from watchfiles import awatch
 
 from chainlit.auth import create_jwt, decode_jwt, get_configuration, get_current_user
+from chainlit.auth.jwt import decode_expired_jwt
 from chainlit.auth.cookie import (
     clear_auth_cookie,
     clear_oauth_state_cookie,
@@ -611,14 +612,35 @@ async def exchange_token(request: Request):
     return response
 
 
+def _get_previous_user(previous_token: Optional[str], mode: Optional[str]) -> Optional[User]:
+    """The user of a former (possibly expired) token of this server and mode."""
+    if not previous_token:
+        return None
+
+    try:
+        previous_user = decode_expired_jwt(previous_token)
+    except Exception:
+        return None
+
+    if previous_user.metadata.get("mode", None) != mode:
+        return None
+
+    return previous_user
+
+
 @router.post("/login")
 async def login(
     request: Request,
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
+    previous_token: Optional[str] = Form(None),
 ):
     """
     Login a user using the password auth callback.
+
+    A client whose token has expired may send it as `previous_token`. The user
+    of that token is passed to the callback, which decides whether the login
+    continues with the same identity (e.g. an anonymous user).
     """
     if not config.code.password_auth_callback:
         raise HTTPException(
@@ -627,7 +649,10 @@ async def login(
 
     mode_name = get_mode_from_request(request)
     user = await config.code.password_auth_callback(
-        form_data.username, form_data.password, mode_name
+        form_data.username,
+        form_data.password,
+        mode_name,
+        _get_previous_user(previous_token, mode_name),
     )
 
     return await _authenticate_user(request, user)
