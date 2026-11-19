@@ -5,22 +5,39 @@ import { useApi, useAuth } from './api';
 import { configState, chatProfileState } from './state';
 import { IChainlitConfig } from './types';
 
+interface ILanguageConfig {
+  primary_language: string | null;
+}
+
 const useConfig = () => {
   const [config, setConfig] = useRecoilState(configState);
   const { isAuthenticated } = useAuth();
   const chatProfile = useRecoilValue(chatProfileState);
-  const language = navigator.language || 'en-US';
+  const browserLanguage = navigator.language || 'en-US';
   const prevChatProfileRef = useRef(chatProfile);
 
+  const {
+    data: languageConfig,
+    error: languageError,
+    isLoading: isLanguageLoading
+  } = useApi<ILanguageConfig>('/project/language');
+
+  // Wait for the server response before loading language-dependent resources.
+  // If the endpoint fails, retain the previous browser-based behavior.
+  const language =
+    languageConfig || languageError
+      ? languageConfig?.primary_language?.trim() || browserLanguage
+      : undefined;
+
   // Build the API URL with optional chat profile parameter
-  const apiUrl = isAuthenticated 
+  const apiUrl = isAuthenticated && language
     ? `/project/settings?language=${language}${chatProfile ? `&chat_profile=${encodeURIComponent(chatProfile)}` : ''}`
     : null;
 
   // Always fetch if we don't have config and we're authenticated
   const shouldFetch = isAuthenticated && !config;
 
-  const { data, error, isLoading } = useApi<IChainlitConfig>(
+  const { data, error, isLoading: isConfigLoading } = useApi<IChainlitConfig>(
     shouldFetch ? apiUrl : null
   );
 
@@ -37,7 +54,12 @@ const useConfig = () => {
     }
   }, [chatProfile, setConfig]);
 
-  return { config, error, isLoading, language };
+  return {
+    config,
+    error: languageError || error,
+    isLoading: isLanguageLoading || isConfigLoading,
+    language
+  };
 };
 
 export { useConfig };

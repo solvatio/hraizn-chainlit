@@ -155,7 +155,9 @@ const ReadOnlyThread = ({ id }: Props) => {
       latex: config?.features?.latex,
       editable: false,
       loading: false,
-      showFeedbackButtons: !!config?.dataPersistence,
+      activeProgresses: [],
+      showFeedbackButtons:
+        !!config?.dataPersistence && config?.features?.feedback !== false,
       uiName: config?.ui?.name || '',
       cot: config?.ui?.cot || 'hidden',
       onElementRefClick,
@@ -166,6 +168,8 @@ const ReadOnlyThread = ({ id }: Props) => {
   }, [
     config?.ui?.name,
     config?.ui?.cot,
+    config?.dataPersistence,
+    config?.features?.feedback,
     config?.features?.unsafe_allow_html,
     onElementRefClick,
     onError,

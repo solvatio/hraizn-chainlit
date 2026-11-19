@@ -2,6 +2,40 @@
 
 The `@chainlit/react-client` package provides a set of React hooks as well as an API client to connect to your [Chainlit](https://github.com/Chainlit/chainlit) application from any React application. The package includes hooks for managing chat sessions, messages, data, and interactions.
 
+## Embedded host actions
+
+The standard widget enables host actions only when the assistant configures
+`features.allowed_host_origins`. The existing `hraizn-host` version 1 handshake
+discovers the parent without URL parameters, a referrer or browser storage:
+
+1. The widget installs its message listener and sends one `hello` to
+   `window.parent` with `targetOrigin: '*'`. This greeting contains only the
+   protocol envelope and a fresh handshake ID, never actions, product data,
+   credentials or chat content. Empty allowlists and standalone chats send no greeting.
+2. The host replies with `ready`, echoing the handshake ID and listing its
+   registered actions. Before binding, the widget validates the actual browser
+   `event.source` and allowlisted `event.origin`, protocol, handshake ID, message
+   size and action manifest. Claimed origins in message data do not authorize a host.
+3. The first valid reply pins the parent origin for the controller lifetime.
+   All action requests target that exact origin; responses from a different
+   origin are rejected, even if it is also allowlisted. Repeated `ready`
+   messages cannot replace the origin or registered actions.
+
+Authentication redirects can therefore drop `hraiznHostOrigin` or
+`hraiznShopOrigin` without breaking product links. Existing hosts may continue
+to set those parameters for compatibility with older clients. No host/plugin
+protocol change, new backend hop, or authentication-policy change is required.
+Existing action validation, expiry/replay guards, translations and best-effort
+post-action telemetry remain in effect. CSP `frame-ancestors` remains a separate
+embedding restriction.
+
+Protocol regression tests (including the existing Shopware host implementation
+with mocked shop responses): from `libs/react-client`, run
+`node --experimental-transform-types tests/host-actions.test.cjs` with Node 22.7+
+and the neighboring `hraizn-saas-commons` checkout available. Rebuild the React
+client and standard UI, and package the updated frontend assets, before deployment.
+These tests do not modify any live shop or cart.
+
 ## Installation
 
 To install the package, run the following command in your project directory:

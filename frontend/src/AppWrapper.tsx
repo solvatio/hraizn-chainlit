@@ -1,6 +1,7 @@
+import { storeChatParametersForAuth } from '@/lib/chatParameters';
 import getRouterBasename from '@/lib/router';
 import App from 'App';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -9,13 +10,19 @@ import {
   useChatInteract,
   useConfig
 } from '@chainlit/react-client';
+import { installHostActions, isOwnWindowMessage } from '@chainlit/react-client';
 
 export default function AppWrapper() {
   const [translationLoaded, setTranslationLoaded] = useState(false);
   const { data: authConfig, isAuthenticated, isReady } = useAuth();
-  const { language: languageInUse } = useConfig();
-  const { i18n } = useTranslation();
+  const { language: languageInUse, config } = useConfig();
+  const { t, i18n } = useTranslation();
   const { windowMessage } = useChatInteract();
+  const sendRef = useRef(windowMessage);
+  sendRef.current = windowMessage;
+  // Language changes must not reset the handshake or pending action guards.
+  const translateRef = useRef(t);
+  translateRef.current = t;
   const basename = getRouterBasename();
   const loginPath = basename + '/login';
   const anonymousLoginPath = basename + '/login-anon';
@@ -27,12 +34,13 @@ export default function AppWrapper() {
     window.location.pathname === basename + '/';
 
   function handleChangeLanguage(languageBundle: any): void {
+    if (!languageInUse) return;
     i18n.addResourceBundle(languageInUse, 'translation', languageBundle);
     i18n.changeLanguage(languageInUse);
   }
 
   const { data: translations } = useApi<any>(
-    `/project/translations?language=${languageInUse}`
+    languageInUse ? `/project/translations?language=${languageInUse}` : null
   );
 
   useEffect(() => {
@@ -43,11 +51,29 @@ export default function AppWrapper() {
 
   useEffect(() => {
     const handleWindowMessage = (event: MessageEvent) => {
-      windowMessage(event.data);
+      // Host messages are handled locally by the origin-bound controller.
+      // Existing login, consent and voice scripts use the own-window path.
+      if (isOwnWindowMessage(event, window)) windowMessage(event.data);
     };
     window.addEventListener('message', handleWindowMessage);
     return () => window.removeEventListener('message', handleWindowMessage);
   }, [windowMessage]);
+
+  const originsKey = JSON.stringify(
+    config?.features.allowed_host_origins || []
+  );
+  useEffect(() => {
+    const origins: string[] = JSON.parse(originsKey);
+    if (!config?.widget || !origins.length) return;
+    return installHostActions(
+      window,
+      document,
+      origins,
+      basename,
+      (data) => sendRef.current(data),
+      (key, defaultValue) => translateRef.current(key, { defaultValue })
+    );
+  }, [originsKey, config?.widget, basename]);
 
   if (!translationLoaded) return null;
 
@@ -58,8 +84,11 @@ export default function AppWrapper() {
     window.location.pathname !== anonymousLoginPath &&
     window.location.pathname !== loginCallbackPath
   ) {
+    storeChatParametersForAuth(window.location.search);
     window.location.href =
-      requireLogin && anonymousAuth && isRootPath ? anonymousLoginPath : loginPath;
+      requireLogin && anonymousAuth && isRootPath
+        ? anonymousLoginPath
+        : loginPath;
   }
   return <App />;
 }

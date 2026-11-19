@@ -34,6 +34,7 @@ export interface IAuthConfig {
 }
 
 export interface IChainlitConfig {
+  widget?: boolean;
   markdown?: string;
   ui: {
     name: string;
@@ -41,10 +42,12 @@ export interface IChainlitConfig {
     default_theme?: 'light' | 'dark';
     layout?: 'default' | 'wide';
     default_sidebar_state?: 'open' | 'closed';
+    welcome_screen?: boolean;
     cot: 'hidden' | 'tool_call' | 'full';
     github?: string;
     custom_css?: string;
     custom_js?: string;
+    custom_thinking_image?: string;
     custom_font?: string;
     alert_style?: 'classic' | 'modern';
     login_page_image?: string;
@@ -62,6 +65,8 @@ export interface IChainlitConfig {
     }[];
   };
   features: {
+    allowed_host_origins?: string[];
+    max_char_limit?: number;
     spontaneous_file_upload?: {
       enabled?: boolean;
       max_size_mb?: number;
@@ -74,6 +79,8 @@ export interface IChainlitConfig {
     user_message_autoscroll?: boolean;
     latex?: boolean;
     edit_message?: boolean;
+    feedback?: boolean;
+    thread_history?: boolean;
     mcp?: {
       enabled?: boolean;
       sse?: {

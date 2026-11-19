@@ -32,6 +32,9 @@ def mock_session_factory(persisted_test_user: PersistedUser) -> Callable[..., Mo
         mock.user = kwargs.get("user", persisted_test_user)
         mock.id = kwargs.get("id", "test_session_id")
         mock.user_env = kwargs.get("user_env", {"test_env": "value"})
+        mock.chat_parameters = kwargs.get(
+            "chat_parameters", {"test_parameter": "value"}
+        )
         mock.chat_settings = kwargs.get("chat_settings", {})
         mock.chat_profile = kwargs.get("chat_profile", None)
         mock.environ = kwargs.get("environ", None)

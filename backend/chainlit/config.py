@@ -99,11 +99,20 @@ latex = false
 # Autoscroll new user messages at the top of the window
 user_message_autoscroll = true
 
+# Maximum number of characters allowed in a user message. 0 means no limit.
+max_char_limit = 0
+
 # Automatically tag threads with the current chat profile (if a chat profile is used)
 auto_tag_thread = true
 
 # Allow users to edit their own messages
 edit_message = true
+
+# Allow users to leave feedback on messages when data persistence is enabled
+feedback = true
+
+# Display the persisted thread history in the left sidebar
+thread_history = true
 
 # Allow users to share threads (backend + UI). Requires an app-defined on_shared_thread_view callback.
 allow_thread_sharing = false
@@ -177,6 +186,9 @@ cot = "full"
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
 # custom_js = "/public/test.js"
+
+# Specify a custom SVG image displayed while the assistant is thinking.
+# custom_thinking_image = "/public/thinking.svg"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"
@@ -300,6 +312,8 @@ class McpFeature(BaseModel):
 
 
 class FeaturesSettings(BaseModel):
+    # The only host integration setting. Actions are negotiated with the parent.
+    allowed_host_origins: List[str] = Field(default_factory=list)
     spontaneous_file_upload: Optional[SpontaneousFileUploadFeature] = None
     audio: Optional[AudioFeature] = Field(default_factory=AudioFeature)
     webcam: Optional[WebcamFeature] = Field(default_factory=WebcamFeature)
@@ -307,9 +321,12 @@ class FeaturesSettings(BaseModel):
     slack: SlackFeature = Field(default_factory=SlackFeature)
     latex: bool = False
     user_message_autoscroll: bool = True
+    max_char_limit: int = Field(default=0, ge=0)
     unsafe_allow_html: bool = False
     auto_tag_thread: bool = True
     edit_message: bool = True
+    feedback: bool = True
+    thread_history: bool = True
     allow_thread_sharing: bool = False
 
 
@@ -355,6 +372,12 @@ class UISettings(BaseModel):
     custom_build: Optional[str] = None
     # Optional header links
     header_links: Optional[List[HeaderLink]] = None
+    # Optional show welcome screen
+    welcome_screen: Optional[bool] = True
+    # Optional show welcome screen
+    primary_language: Optional[str] = None
+    # Optional SVG image displayed while the assistant is thinking
+    custom_thinking_image: Optional[str] = None
 
 
 class CodeSettings(BaseModel):
@@ -373,6 +396,8 @@ class CodeSettings(BaseModel):
     on_stop: Optional[Callable[[], Any]] = None
     on_chat_start: Optional[Callable[[], Any]] = None
     on_chat_end: Optional[Callable[[], Any]] = None
+    on_session_delete: Optional[Callable[[str], Any]] = None
+    on_persist_session: Optional[Callable[[Dict[str, Any]], None]] = None
     on_chat_resume: Optional[Callable[["ThreadDict"], Any]] = None
     on_message: Optional[Callable[["Message"], Any]] = None
     on_feedback: Optional[Callable[["Feedback"], Any]] = None
@@ -415,11 +440,10 @@ class CodeSettings(BaseModel):
 
 class ProjectSettings(BaseModel):
     allow_origins: List[str] = Field(default_factory=lambda: ["*"])
-    modes: list[str] = Field(default_factory=lambda: [])
-    login_modes: list[str] = Field(default_factory=lambda: [])
-    password_auth_callback_modes: list[str] = Field(default_factory=lambda: [])
-    azure_oauth_callback_modes: list[str] = Field(default_factory=lambda: [])
-    anonymous_auth_callback_modes: list[str] = Field(default_factory=lambda: [])
+    login: Optional[bool] = None
+    password_auth_callback: bool = False
+    azure_oauth_callback: bool = False
+    anonymous_auth_callback: bool = True
     # Socket.io client transports option
     transports: Optional[List[str]] = None
     # List of environment variables to be provided by each user to use the app. If empty, no environment variables will be asked to the user.
@@ -431,6 +455,9 @@ class ProjectSettings(BaseModel):
     session_timeout: int = 300
     # Duration (in seconds) of the user session expiry
     user_session_timeout: int = 1296000  # 15 days
+    # Duration (in seconds) of the session expiry of anonymous users, i.e. users
+    # with metadata["anonymous"] == True. Defaults to user_session_timeout.
+    anonymous_user_session_timeout: Optional[int] = None
     # Enable third parties caching (e.g LangChain cache)
     cache: bool = False
     # Whether to persist user environment variables (API keys) to the database

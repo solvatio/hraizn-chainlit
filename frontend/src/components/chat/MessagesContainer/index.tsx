@@ -28,7 +28,8 @@ interface Props {
 const MessagesContainer = ({ navigate }: Props) => {
   const apiClient = useContext(ChainlitContext);
   const { config } = useConfig();
-  const { elements, askUser, loading, actions } = useChatData();
+  const { elements, askUser, loading, actions, activeProgresses } =
+    useChatData();
   const { messages } = useChatMessages();
   const { uploadFile: _uploadFile } = useChatInteract();
   const setMessages = useSetRecoilState(messagesState);
@@ -114,7 +115,8 @@ const MessagesContainer = ({ navigate }: Props) => {
 
   const onError = useCallback((error: string) => toast.error(error), [toast]);
 
-  const enableFeedback = !!config?.dataPersistence;
+  const enableFeedback =
+    !!config?.dataPersistence && config?.features?.feedback !== false;
 
   // Memoize the context object since it's created on each render.
   // This prevents unnecessary re-renders of children components when no props have changed.
@@ -126,6 +128,7 @@ const MessagesContainer = ({ navigate }: Props) => {
       latex: config?.features?.latex,
       editable: !!config?.features.edit_message,
       loading,
+      activeProgresses,
       showFeedbackButtons: enableFeedback,
       uiName: config?.ui?.name || '',
       cot: config?.ui?.cot || 'hidden',
@@ -136,6 +139,7 @@ const MessagesContainer = ({ navigate }: Props) => {
     };
   }, [
     askUser,
+    activeProgresses,
     enableFeedback,
     loading,
     config?.ui?.name,

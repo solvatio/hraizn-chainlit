@@ -27,6 +27,7 @@ const MessageAvatar = ({ author, hide, isError }: Props) => {
   const apiClient = useContext(ChainlitContext);
   const { chatProfile } = useChatSession();
   const { config } = useConfig();
+  const isWidget = config?.widget === true;
 
   const selectedChatProfile = useMemo(() => {
     return config?.chatProfiles.find((profile) => profile.name === chatProfile);
@@ -44,7 +45,12 @@ const MessageAvatar = ({ author, hide, isError }: Props) => {
 
   if (isError) {
     return (
-      <AlertCircle className="h-5 w-5 fill-destructive mt-[5px] text-destructive-foreground" />
+      <AlertCircle
+        className={cn(
+          'h-5 w-5 fill-destructive text-destructive-foreground',
+          isWidget ? 'mt-0' : 'mt-[5px]'
+        )}
+      />
     );
   }
 
@@ -53,7 +59,9 @@ const MessageAvatar = ({ author, hide, isError }: Props) => {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Avatar className="h-5 w-5 mt-[3px]">
+            <Avatar
+              className={cn('h-5 w-5', isWidget ? 'mt-0' : 'mt-[3px]')}
+            >
               <AvatarImage
                 src={avatarUrl}
                 alt={`Avatar for ${author || 'default'}`}

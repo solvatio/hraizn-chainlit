@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 import animate from 'tailwindcss-animate';
+import typography from '@tailwindcss/typography';
 
 export default {
   darkMode: ['class'],
@@ -124,5 +125,5 @@ export default {
         /^(filter-none|blur(?:-\w+)?|brightness-\d+|contrast-\d+|grayscale(?:-\d+)?|hue-rotate-\d+|-hue-rotate-\d+|invert(?:-\d+)?|saturate-\d+|sepia(?:-\d+)?)$/
     }
   ],
-  plugins: [animate]
+  plugins: [typography, animate]
 };

@@ -4,10 +4,11 @@ import useSWR, { SWRResponse } from 'swr';
 import { ChainlitContext } from '@chainlit/react-client';
 
 const fetcher =
-  (isChainlitRequest: boolean) =>
+  (isChainlitRequest: boolean, authHeaders: { Authorization?: string }) =>
   async (url: string): Promise<any> => {
+    // The access token is only ever sent to the chat backend.
     const fetchOptions: RequestInit = {
-      ...(isChainlitRequest && { credentials: 'include' })
+      ...(isChainlitRequest && { credentials: 'include', headers: authHeaders })
     };
 
     const response = await fetch(url, fetchOptions);
@@ -26,7 +27,10 @@ const useFetch = (endpoint: string | null): SWRResponse<any, Error> => {
   const apiClient = useContext(ChainlitContext);
   const isChainlitRequest = endpoint?.startsWith(apiClient.httpEndpoint);
 
-  return useSWR<any, Error>(endpoint, fetcher(!!isChainlitRequest));
+  return useSWR<any, Error>(
+    endpoint,
+    fetcher(!!isChainlitRequest, apiClient.authHeaders())
+  );
 };
 
 export { useFetch };

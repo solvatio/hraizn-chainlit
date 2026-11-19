@@ -10,9 +10,12 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { visit } from 'unist-util-visit';
 
-import { ChainlitContext, type IMessageElement } from '@chainlit/react-client';
+import {
+  ChainlitContext,
+  type IMessageElement,
+  useConfig
+} from '@chainlit/react-client';
 
-import { AspectRatio } from '@/components/ui/aspect-ratio';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -27,12 +30,17 @@ import {
 import BlinkingCursor from './BlinkingCursor';
 import CodeSnippet from './CodeSnippet';
 import { ElementRef } from './Elements/ElementRef';
+import { MarkdownImage } from './MarkdownImage';
 import {
   type AlertProps,
   MarkdownAlert,
   alertComponents,
   normalizeAlertType
 } from './MarkdownAlert';
+import {
+  MarkdownProductCard,
+  productCardComponents
+} from './MarkdownProductCard';
 
 interface Props {
   allowHtml?: boolean;
@@ -96,6 +104,8 @@ const Markdown = ({
   children
 }: Props) => {
   const apiClient = useContext(ChainlitContext);
+  const { config } = useConfig();
+  const isWidget = config?.widget === true;
 
   const rehypePlugins = useMemo(() => {
     let rehypePlugins: PluggableList = [];
@@ -113,6 +123,7 @@ const Markdown = ({
       cursorPlugin,
       remarkGfm as any,
       remarkDirective as any,
+      MarkdownProductCard,
       MarkdownAlert
     ];
 
@@ -124,11 +135,18 @@ const Markdown = ({
 
   return (
     <ReactMarkdown
-      className={cn('prose lg:prose-xl', className)}
+      className={cn(
+        'prose text-inherit',
+        isWidget
+          ? 'prose-sm md:prose max-w-none leading-5'
+          : 'prose-sm max-w-none',
+        className
+      )}
       remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins}
       components={{
         ...alertComponents, // add alert components
+        ...productCardComponents,
         code(props) {
           return (
             <code
@@ -158,23 +176,18 @@ const Markdown = ({
           }
         },
         img: (image: any) => {
+          if (!image.src) return null;
+
+          const src = image.src.startsWith('/public')
+            ? apiClient.buildEndpoint(image.src)
+            : image.src;
+
           return (
-            <div className="sm:max-w-sm md:max-w-md">
-              <AspectRatio
-                ratio={16 / 9}
-                className="bg-muted rounded-md overflow-hidden"
-              >
-                <img
-                  src={
-                    image.src.startsWith('/public')
-                      ? apiClient.buildEndpoint(image.src)
-                      : image.src
-                  }
-                  alt={image.alt}
-                  className="h-full w-full object-contain"
-                />
-              </AspectRatio>
-            </div>
+            <MarkdownImage
+              src={src}
+              alt={image.alt}
+              title={image.title}
+            />
           );
         },
         blockquote(props) {
@@ -198,7 +211,12 @@ const Markdown = ({
           return (
             <ul
               {...omit(props, ['node'])}
-              className="my-3 ml-3 list-disc pl-2 [&>li]:mt-1"
+              className={cn(
+                'my-3 ml-3 list-disc pl-2 [&>li::marker]:text-inherit',
+                isWidget
+                  ? '[&>li]:my-0 [&>li]:leading-5'
+                  : '[&>li]:mt-1'
+              )}
             />
           );
         },
@@ -206,7 +224,12 @@ const Markdown = ({
           return (
             <ol
               {...omit(props, ['node'])}
-              className="my-3 ml-3 list-decimal pl-2 [&>li]:mt-1"
+              className={cn(
+                'my-3 ml-3 list-decimal pl-2 [&>li::marker]:text-inherit',
+                isWidget
+                  ? '[&>li]:my-0 [&>li]:leading-5'
+                  : '[&>li]:mt-1'
+              )}
             />
           );
         },
@@ -246,7 +269,10 @@ const Markdown = ({
           return (
             <div
               {...omit(props, ['node'])}
-              className="leading-7 [&:not(:first-child)]:mt-4 break-words"
+              className={cn(
+                '[&:not(:first-child)]:mt-4 break-words',
+                isWidget ? 'leading-5' : 'leading-7'
+              )}
               role="article"
             />
           );

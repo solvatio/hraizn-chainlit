@@ -49,7 +49,10 @@ const Page = ({ children }: Props) => {
     </div>
   );
 
-  const historyEnabled = config?.dataPersistence && data?.requireLogin;
+  const historyEnabled =
+    config?.dataPersistence &&
+    data?.requireLogin &&
+    config?.features?.thread_history !== false;
 
   return (
     <SidebarProvider

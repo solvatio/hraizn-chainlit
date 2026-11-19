@@ -1,3 +1,7 @@
+import {
+  clearStoredChatParameters,
+  getChatParameters
+} from '@/lib/chatParameters';
 import { cn } from '@/lib/utils';
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
@@ -10,6 +14,8 @@ import ChatSettingsModal from './components/ChatSettings';
 import { ThemeProvider } from './components/ThemeProvider';
 import { Loader } from '@/components/Loader';
 import { Toaster } from '@/components/ui/sonner';
+
+import { useWidgetThreadResume } from '@/hooks/useWidgetThreadResume';
 
 import { userEnvState } from 'state/user';
 
@@ -29,7 +35,8 @@ function App() {
 
   const { isAuthenticated, data, isReady } = useAuth();
   const userEnv = useRecoilValue(userEnvState);
-  const { connect, chatProfile, setChatProfile } = useChatSession();
+  const { connect, session, chatProfile, setChatProfile } = useChatSession();
+  const widgetThreadReady = useWidgetThreadResume();
 
   const configLoaded = !!config;
 
@@ -40,15 +47,29 @@ function App() {
     : false;
 
   useEffect(() => {
-    if (!isAuthenticated || !isReady || !chatProfileOk) {
+    if (!isAuthenticated || !isReady || !chatProfileOk || !widgetThreadReady) {
       return;
     }
 
     connect({
       transports: window.transports,
-      userEnv
+      userEnv,
+      chatParameters: getChatParameters(window.location.search)
     });
-  }, [userEnv, isAuthenticated, connect, isReady, chatProfileOk]);
+  }, [
+    userEnv,
+    isAuthenticated,
+    connect,
+    isReady,
+    chatProfileOk,
+    widgetThreadReady
+  ]);
+
+  useEffect(() => {
+    if (session?.socket.connected) {
+      clearStoredChatParameters();
+    }
+  }, [session]);
 
   useEffect(() => {
     if (

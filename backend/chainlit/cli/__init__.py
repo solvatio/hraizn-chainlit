@@ -5,6 +5,8 @@ import click
 import nest_asyncio
 import uvicorn
 
+from chainlit import modes
+
 # Not sure if it is necessary to call nest_asyncio.apply() before the other imports
 nest_asyncio.apply()
 
@@ -64,6 +66,8 @@ def run_chainlit(target: str):
     ]  # Convert to boolean
 
     ws_protocol = os.environ.get("UVICORN_WS_PROTOCOL", "auto")
+
+    modes.mode_configs = modes.load_mode_configs()
 
     config.run.host = host
     config.run.port = port

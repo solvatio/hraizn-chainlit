@@ -2,8 +2,12 @@ import ReactPlayer from 'react-player';
 
 import { type IVideoElement } from '@chainlit/react-client';
 
+import { useSessionFileUrl } from '@/hooks/useSessionFileUrl';
+
 const VideoElement = ({ element }: { element: IVideoElement }) => {
-  if (!element.url) {
+  const url = useSessionFileUrl(element.url);
+
+  if (!url) {
     return null;
   }
 
@@ -12,7 +16,7 @@ const VideoElement = ({ element }: { element: IVideoElement }) => {
       className={`${element.display}-video`}
       width="100%"
       controls
-      url={element.url}
+      url={url}
       config={element.playerConfig || {}}
     />
   );

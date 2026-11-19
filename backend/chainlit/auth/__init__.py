@@ -2,21 +2,18 @@ import os
 
 from fastapi import Depends, HTTPException, Request
 
-from chainlit.config import config
 from chainlit.data import get_data_layer
 from chainlit.logger import logger
 from chainlit.oauth_providers import get_configured_oauth_providers
 
 from .cookie import (
-    OAuth2PasswordBearerWithCookie,
+    OAuth2PasswordBearerHeader,
     clear_auth_cookie,
-    get_token_from_cookies,
-    set_auth_cookie,
 )
 from .jwt import create_jwt, decode_jwt, get_jwt_secret
-from ..modes import get_mode_from_request
+from chainlit.modes import get_mode_from_request, mode_configs, get_mode_config
 
-reuseable_oauth = OAuth2PasswordBearerWithCookie(tokenUrl="/login", auto_error=False)
+reuseable_oauth = OAuth2PasswordBearerHeader(tokenUrl="/login", auto_error=False)
 
 
 def ensure_jwt_secret():
@@ -28,20 +25,16 @@ def ensure_jwt_secret():
 
 
 def is_oauth_enabled(mode: str = None):
+    mode_config = get_mode_config(mode)
     if mode:
-        return config.code.oauth_callback and len(get_configured_oauth_providers(mode)) > 0 and is_azure_oauth(mode)
-    return config.code.oauth_callback and len(get_configured_oauth_providers()) > 0
+        return mode_config.code.oauth_callback and len(get_configured_oauth_providers(mode)) > 0 and mode_config.project.azure_oauth_callback
+    return mode_config.code.oauth_callback and len(get_configured_oauth_providers()) > 0
 
-def is_password_auth(mode: str):
-    return mode in config.project.password_auth_callback_modes
-
-def is_azure_oauth(mode: str):
-    return mode in config.project.azure_oauth_callback_modes
-
-def require_login(mode: str = None):
-    if mode in config.project.login_modes:
-        return True
-    if config.project.modes:
+def require_login(mode: str|None = None):
+    config = get_mode_config(mode)
+    if config.project.login is not None:
+        return config.project.login
+    if mode_configs:
         return False
     return (
         bool(os.environ.get("CHAINLIT_CUSTOM_AUTH"))
@@ -53,11 +46,12 @@ def require_login(mode: str = None):
 
 
 def get_configuration(mode: str):
+    config = get_mode_config(mode)
     return {
         "requireLogin": require_login(mode),
-        "passwordAuth": config.code.password_auth_callback is not None and is_password_auth(mode),
+        "passwordAuth": config.code.password_auth_callback is not None and config.project.password_auth_callback,
         "headerAuth": config.code.header_auth_callback is not None,
-        "anonymousAuth": mode in config.project.anonymous_auth_callback_modes,
+        "anonymousAuth": config.project.anonymous_auth_callback,
         "oauthProviders": get_configured_oauth_providers(mode) if is_oauth_enabled(mode) else [],
         "default_theme": config.ui.default_theme,
         "ui": {
@@ -82,14 +76,16 @@ async def authenticate_user(mode_name: str = None, token: str = Depends(reuseabl
         )
 
     if data_layer := get_data_layer():
-        # Get or create persistent user if we've a data layer available.
+        # Resolve an existing persistent user, but do not create one during
+        # authentication. New users are persisted lazily with their first
+        # interaction so merely opening the chat does not create user data.
         try:
             persisted_user = await data_layer.get_user(user.identifier)
-            if persisted_user is None:
-                persisted_user = await data_layer.create_user(user)
-                assert persisted_user
         except Exception as e:
             logger.exception("Unable to get persisted_user from data layer: %s", e)
+            return user
+
+        if persisted_user is None:
             return user
 
         if user and user.display_name:
@@ -117,6 +113,4 @@ __all__ = [
     "create_jwt",
     "get_configuration",
     "get_current_user",
-    "get_token_from_cookies",
-    "set_auth_cookie",
 ]

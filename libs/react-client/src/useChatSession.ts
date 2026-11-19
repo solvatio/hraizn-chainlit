@@ -1,5 +1,5 @@
 import { debounce } from 'lodash';
-import { useCallback, useContext, useEffect } from 'react';
+import { useCallback, useContext, useEffect, useRef } from 'react';
 import {
   useRecoilState,
   useRecoilValue,
@@ -7,8 +7,10 @@ import {
   useSetRecoilState
 } from 'recoil';
 import io from 'socket.io-client';
+import { isHostMessage } from './hostActions';
 import { toast } from 'sonner';
 import {
+  activeProgressState,
   actionState,
   askUserState,
   audioConnectionState,
@@ -34,6 +36,7 @@ import {
   wavRecorderState,
   wavStreamPlayerState
 } from 'src/state';
+import type { IActiveProgress } from 'src/state';
 import {
   IAction,
   ICommand,
@@ -53,6 +56,7 @@ import {
 import { OutputAudioChunk } from './types/audio';
 
 import { ChainlitContext } from './context';
+import { SocketConnectError } from './socketErrors';
 import type { IToken } from './useChatData';
 
 const useChatSession = () => {
@@ -66,6 +70,9 @@ const useChatSession = () => {
   const setChatSettingsValue = useSetRecoilState(chatSettingsValueState);
   const setFirstUserInteraction = useSetRecoilState(firstUserInteraction);
   const setLoading = useSetRecoilState(loadingState);
+  const setActiveProgresses = useSetRecoilState(activeProgressState);
+  const activeProgressesRef = useRef(new Map<string, IActiveProgress>());
+  const legacyTaskRunningRef = useRef(false);
   const setMcps = useSetRecoilState(mcpState);
   const wavStreamPlayer = useRecoilValue(wavStreamPlayerState);
   const wavRecorder = useRecoilValue(wavRecorderState);
@@ -96,10 +103,12 @@ const useChatSession = () => {
   const _connect = useCallback(
     async ({
       transports,
-      userEnv
+      userEnv,
+      chatParameters = {}
     }: {
       transports?: string[];
       userEnv: Record<string, string>;
+      chatParameters?: Record<string, string>;
     }) => {
       const { protocol, host, pathname } = new URL(client.httpEndpoint);
       const uri = `${protocol}//${host}`;
@@ -121,8 +130,11 @@ const useChatSession = () => {
         auth: {
           clientType: client.type,
           sessionId,
+          // Access token: cookies are not used for authentication.
+          token: client.getToken() || '',
           threadId: idToResume || '',
           userEnv: JSON.stringify(userEnv),
+          chatParameters: JSON.stringify(chatParameters),
           chatProfile: chatProfile ? encodeURIComponent(chatProfile) : ''
         }
       });
@@ -133,6 +145,22 @@ const useChatSession = () => {
           socket
         };
       });
+
+      activeProgressesRef.current.clear();
+      legacyTaskRunningRef.current = false;
+      setActiveProgresses([]);
+
+      const clearActiveProgresses = () => {
+        if (!activeProgressesRef.current.size) {
+          return;
+        }
+
+        activeProgressesRef.current.clear();
+        setActiveProgresses([]);
+      };
+
+      const hasTextOutput = (message: IStep) =>
+        typeof message.output === 'string' && message.output.trim().length > 0;
 
       socket.on('connect', () => {
         socket.emit('connection_successful');
@@ -188,20 +216,71 @@ const useChatSession = () => {
         );
       });
 
-      socket.on('connect_error', (_) => {
+      socket.on('connect_error', (err) => {
         setSession((s) => ({ ...s!, error: true }));
+        // The access token expired while the page was open: sign in again.
+        if (err?.message === SocketConnectError.AUTHENTICATION_FAILED) {
+          client.handleSocketAuthFailure();
+        }
       });
 
       socket.on('task_start', () => {
+        legacyTaskRunningRef.current = true;
         setLoading(true);
       });
 
       socket.on('task_end', () => {
-        setLoading(false);
+        legacyTaskRunningRef.current = false;
+        setLoading(activeProgressesRef.current.size > 0);
+      });
+
+      socket.on('progress_start', (progress?: Partial<IActiveProgress>) => {
+        if (!progress?.id || !progress.text) {
+          return;
+        }
+
+        activeProgressesRef.current.set(progress.id, {
+          id: progress.id,
+          text: progress.text
+        });
+        setActiveProgresses(Array.from(activeProgressesRef.current.values()));
+        setLoading(true);
+      });
+
+      socket.on('progress_update', (progress?: Partial<IActiveProgress>) => {
+        if (
+          !progress?.id ||
+          !progress.text ||
+          !activeProgressesRef.current.has(progress.id)
+        ) {
+          return;
+        }
+
+        activeProgressesRef.current.set(progress.id, {
+          id: progress.id,
+          text: progress.text
+        });
+        setActiveProgresses(Array.from(activeProgressesRef.current.values()));
+      });
+
+      socket.on('progress_end', (progress?: Pick<IActiveProgress, 'id'>) => {
+        if (!progress?.id) {
+          return;
+        }
+
+        activeProgressesRef.current.delete(progress.id);
+        setActiveProgresses(Array.from(activeProgressesRef.current.values()));
+        setLoading(
+          legacyTaskRunningRef.current || activeProgressesRef.current.size > 0
+        );
       });
 
       socket.on('reload', () => {
         socket.emit('clear_session');
+        window.location.reload();
+      });
+
+      socket.on('reload_ui', () => {
         window.location.reload();
       });
 
@@ -275,6 +354,9 @@ const useChatSession = () => {
       });
 
       socket.on('new_message', (message: IStep) => {
+        if (hasTextOutput(message)) {
+          clearActiveProgresses();
+        }
         setMessages((oldMessages) => addMessage(oldMessages, message));
       });
 
@@ -287,6 +369,9 @@ const useChatSession = () => {
       );
 
       socket.on('update_message', (message: IStep) => {
+        if (hasTextOutput(message)) {
+          clearActiveProgresses();
+        }
         setMessages((oldMessages) =>
           updateMessageById(oldMessages, message.id, message)
         );
@@ -299,12 +384,18 @@ const useChatSession = () => {
       });
 
       socket.on('stream_start', (message: IStep) => {
+        if (hasTextOutput(message)) {
+          clearActiveProgresses();
+        }
         setMessages((oldMessages) => addMessage(oldMessages, message));
       });
 
       socket.on(
         'stream_token',
         ({ id, token, isSequence, isInput }: IToken) => {
+          if (!isInput && token.trim().length > 0) {
+            clearActiveProgresses();
+          }
           setMessages((oldMessages) =>
             updateMessageContentById(
               oldMessages,
@@ -435,6 +526,9 @@ const useChatSession = () => {
       });
 
       socket.on('window_message', (data: any) => {
+        // Host actions run locally; stale server commands must never execute or
+        // escape through the legacy wildcard path.
+        if (isHostMessage(data)) return;
         if (window.parent) {
           window.parent.postMessage(data, '*');
         }
@@ -475,7 +569,11 @@ const useChatSession = () => {
       session.socket.removeAllListeners();
       session.socket.close();
     }
-  }, [session]);
+    activeProgressesRef.current.clear();
+    legacyTaskRunningRef.current = false;
+    setActiveProgresses([]);
+    setLoading(false);
+  }, [session, setActiveProgresses, setLoading]);
 
   return {
     connect,

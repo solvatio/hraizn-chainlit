@@ -5,6 +5,7 @@ import { IMessageContext } from 'types/messageContext';
 const defaultMessageContext = {
   highlightedMessage: null,
   loading: false,
+  activeProgresses: [],
   editable: false,
   onElementRefClick: undefined,
   onFeedbackUpdated: undefined,

@@ -3,8 +3,55 @@ import json
 import os
 from typing import Callable, Any
 
-from chainlit.config import config
+import socketio
+import tomli
+
+from chainlit.config import config, ChainlitConfig, APP_ROOT, ChainlitConfigOverrides, FeaturesSettings, \
+    UISettings, ProjectSettings, reload_config
 from fastapi import APIRouter, Request
+
+def load_settings(config_file: str):
+    with open(config_file, "rb") as f:
+        toml_dict = tomli.load(f)
+        # Load project settings
+        features_settings = toml_dict.get("features", {})
+        ui_settings = toml_dict.get("UI", {})
+        project_settings = toml_dict.get("project", {})
+        features_settings = FeaturesSettings(**features_settings)
+        ui_settings = UISettings(**ui_settings)
+        project_settings = ProjectSettings(**project_settings)
+        return {
+            "features": features_settings,
+            "ui": ui_settings,
+            "project": project_settings
+        }
+
+def load_mode_configs() -> dict[str, ChainlitConfigOverrides]:
+    configs: dict[str, ChainlitConfigOverrides] = {}
+
+    chainlit_dir = os.path.join(APP_ROOT, ".chainlit")
+    modes_dir = os.path.join(chainlit_dir, "modes")
+
+    if not os.path.isdir(modes_dir):
+        return configs
+
+    for mode_name in os.listdir(modes_dir):
+        mode_dir = os.path.join(modes_dir, mode_name)
+
+        if not os.path.isdir(mode_dir):
+            continue
+
+        config_path = os.path.join(mode_dir, "config.toml")
+
+        if not os.path.isfile(config_path):
+            continue
+
+        settings = load_settings(config_path)
+        mode_config = ChainlitConfigOverrides(**settings)
+        configs[mode_name] = mode_config
+
+    return configs
+
 
 @dataclasses.dataclass
 class Mode:
@@ -38,7 +85,7 @@ def _decode_params(params: str) -> dict|None:
 
 def get_mode_params_redirect(root_path: str, path: str, query:dict, modes: list[str]|None = None):
     if modes is None:
-        modes = config.project.modes
+        modes = list(mode_configs.keys())
     if not query:
         return None
     if not path.endswith("/context") and not path.endswith("/context/"):
@@ -61,7 +108,7 @@ def get_mode_from_user_session(user_session):
 
 def get_mode(root_path: str, path: str, modes: list[str] = None) -> Mode:
     if modes is None:
-        modes = config.project.modes
+        modes = list(mode_configs.keys())
 
     mode = None
     in_mode_params = False
@@ -123,79 +170,65 @@ def get_mode_from_request(request: Request):
     mode = get_mode(root_path=root_path, path=request.url.path)
     return mode.name
 
-class ModeRouterWrapper:
-    """
-    Wraps an existing APIRouter and registers routes under multiple profile prefixes.
-    It does NOT subclass APIRouter; it delegates to the provided router instance.
-    Usage:
-        router = APIRouter(prefix="/api")
-        wrapped = ProfileRouterWrapper(router, profiles=["selfcare", "agent"])
-        @wrapped.post("/teams/events")
-        async def teams_endpoint(...):
-            ...
-    """
+class ModeRouter:
+    def __init__(self, router: APIRouter):
+        self.underlying = router
 
-    def __init__(self, router: APIRouter, modes=None):
-        self.router = router
-        if modes is None:
-            modes = []
-        # normalize profiles to strings without leading/trailing slashes
-        self.modes = [str(p).strip("/") for p in modes]
+    @staticmethod
+    def get_mode_paths(base_path: str):
+        return [
+            base_path,
+            "/{mode}" + base_path,
+            "/{mode}/{context}" + base_path,
+            "/{mode}/m/{variant}" + base_path
+        ]
 
-    def _wrap_method(self, method_name: str) -> Callable[..., Callable]:
-        """
-        Return a decorator factory that registers the route on the underlying router
-        for the given method_name and also registers profile-prefixed versions.
-        """
-        def method(path: str, *args: Any, **kwargs: Any):
-            def decorator(func: Callable):
-                # Register the original route on the underlying router
-                if not self.modes:
-                    getattr(self.router, method_name)(path, *args, **kwargs)(func)
-                else:
-                    # Register each profile-prefixed route
-                    for mode in self.modes:
-                        # /agent/api
-                        prefixed_path = f"/{mode}{path}"
-                        getattr(self.router, method_name)(prefixed_path, *args, **kwargs)(func)
-                        # /agent/context/foobar/api
-                        mode_params_path = f"/{mode}/context/{{context}}{path}"
-                        getattr(self.router, method_name)(mode_params_path, *args, **kwargs)(func)
-                        # /agent/m/<variant>/api
-                        mode_params_variant_path = f"/{mode}/m/{{variant}}{path}"
-                        getattr(self.router, method_name)(mode_params_variant_path, *args, **kwargs)(func)
-                return func
-            return decorator
-        return method
+    def get(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.get(path)(func)
+            return func
 
-    # Common HTTP methods (including HEAD)
-    def get(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("get")(path, *args, **kwargs)
+        return decorator
 
-    def post(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("post")(path, *args, **kwargs)
+    def post(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.post(path)(func)
+            return func
 
-    def put(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("put")(path, *args, **kwargs)
+        return decorator
 
-    def delete(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("delete")(path, *args, **kwargs)
+    def put(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.put(path)(func)
+            return func
 
-    def patch(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("patch")(path, *args, **kwargs)
+        return decorator
 
-    def head(self, path: str, *args: Any, **kwargs: Any):
-        return self._wrap_method("head")(path, *args, **kwargs)
+    def delete(self, base_path: str):
+        def decorator(func: Callable[..., Any]):
+            for path in self.get_mode_paths(base_path):
+                self.underlying.delete(path)(func)
+            return func
 
-    # Optionally expose the underlying router for direct access
-    @property
-    def underlying(self) -> APIRouter:
-        return self.router
+        return decorator
 
 
-    # Define standard HTTP methods
-    def get(self, path: str, *args, **kwargs): return self._wrap_method("get")(path, *args, **kwargs)
-    def post(self, path: str, *args, **kwargs): return self._wrap_method("post")(path, *args, **kwargs)
-    def put(self, path: str, *args, **kwargs): return self._wrap_method("put")(path, *args, **kwargs)
-    def delete(self, path: str, *args, **kwargs): return self._wrap_method("delete")(path, *args, **kwargs)
-    def patch(self, path: str, *args, **kwargs): return self._wrap_method("patch")(path, *args, **kwargs)
+mode_configs: dict[str, ChainlitConfigOverrides] = {}
+
+def get_mode_config(mode: str|None) -> ChainlitConfig:
+    if not mode:
+        return config
+    override = mode_configs.get(mode)
+    if override:
+        return config.with_overrides(override)
+    else:
+        return config
+
+async def reload(sio: socketio.AsyncServer):
+    #reload_config()
+    global mode_configs
+    mode_configs = load_mode_configs()
+    await sio.emit("reload", {})

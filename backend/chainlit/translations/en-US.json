@@ -1,4 +1,15 @@
 {
+  "hostActions": {
+    "success": "The action was completed.",
+    "checkBeforeRetry": "Please check the page before trying this action again.",
+    "failed": "The action could not be completed. Please check the page.",
+    "foreignLink": "This action link does not belong to this chat.",
+    "unavailable": "This action is not available in this embedding.",
+    "invalidLink": "This action link is not valid.",
+    "timeout": "The action took too long.",
+    "tooManyActions": "Please reopen the chat before using another action.",
+    "connectionLost": "The connection was interrupted."
+  },
   "common": {
     "actions": {
       "cancel": "Cancel",

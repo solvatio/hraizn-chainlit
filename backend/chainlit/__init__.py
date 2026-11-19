@@ -75,6 +75,7 @@ from .callbacks import (
     on_mcp_connect,
     on_mcp_disconnect,
     on_message,
+    on_persist_session,
     on_settings_update,
     on_shared_thread_view,
     on_slack_reaction_added,
@@ -85,7 +86,8 @@ from .callbacks import (
     set_chat_profiles,
     set_starters,
     is_image_callback,
-    convert_image_callback
+    convert_image_callback,
+    on_session_delete
 )
 
 if TYPE_CHECKING:
@@ -193,6 +195,7 @@ __all__ = [
     "on_mcp_connect",
     "on_mcp_disconnect",
     "on_message",
+    "on_persist_session",
     "on_settings_update",
     "on_shared_thread_view",
     "on_slack_reaction_added",
@@ -207,7 +210,8 @@ __all__ = [
     "step",
     "user_session",
     "convert_image_callback",
-    "is_image_callback"
+    "is_image_callback",
+    "on_session_delete"
 ]
 
 

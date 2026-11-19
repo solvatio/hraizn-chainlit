@@ -1,4 +1,15 @@
 {
+  "hostActions": {
+    "success": "Die Aktion wurde ausgeführt.",
+    "checkBeforeRetry": "Bitte prüfen Sie die Seite, bevor Sie die Aktion erneut ausführen.",
+    "failed": "Die Aktion konnte nicht ausgeführt werden. Bitte prüfen Sie die Seite.",
+    "foreignLink": "Dieser Aktionslink gehört nicht zu diesem Chat.",
+    "unavailable": "Diese Aktion ist in dieser Einbettung nicht verfügbar.",
+    "invalidLink": "Dieser Aktionslink ist nicht gültig.",
+    "timeout": "Die Aktion hat zu lange gedauert.",
+    "tooManyActions": "Bitte öffnen Sie den Chat erneut, bevor Sie eine weitere Aktion ausführen.",
+    "connectionLost": "Die Verbindung wurde unterbrochen."
+  },
   "common": {
     "actions": {
       "cancel": "Abbrechen",

@@ -4,10 +4,13 @@ import React, { memo, useContext } from 'react';
 import {
   type IAction,
   type IMessageElement,
-  type IStep
+  type IStep,
+  useConfig
 } from '@chainlit/react-client';
 
 import BlinkingCursor from '@/components/BlinkingCursor';
+import ThinkingCursor from '@/components/ThinkingCursor';
+import { Translator } from 'components/i18n';
 
 import { Message } from './Message';
 
@@ -44,6 +47,7 @@ const hasAssistantMessage = (step: IStep): boolean => {
 const Messages = memo(
   ({ messages, elements, actions, indent, isRunning, scorableRun }: Props) => {
     const messageContext = useContext(MessageContext);
+    const { config } = useConfig();
     return (
       <>
         {messages.map((m) => {
@@ -62,6 +66,8 @@ const Messages = memo(
             const showHiddenCoTLoader = isHiddenCoT
               ? isRunning && !hasAssistantMessage(m)
               : false;
+            const showActiveProgressesLoader =
+              isRunning && messageContext.activeProgresses.length > 0;
             // Ignore on_chat_start for scorable run
             const scorableRun =
               !isRunning && m.name !== 'on_chat_start' ? m : undefined;
@@ -77,9 +83,30 @@ const Messages = memo(
                     scorableRun={scorableRun}
                   />
                 ) : null}
-                {(showToolCoTLoader || showHiddenCoTLoader) &&
+                {(showToolCoTLoader ||
+                  showHiddenCoTLoader ||
+                  showActiveProgressesLoader) &&
                 m.name !== 'on_chat_start' ? (
-                  <BlinkingCursor />
+                  <div
+                    className="flex items-center gap-2"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {config?.ui.custom_thinking_image ? (
+                      <ThinkingCursor src={config.ui.custom_thinking_image} />
+                    ) : (
+                      <BlinkingCursor />
+                    )}
+                    <span className="flex flex-wrap gap-x-2 text-sm italic">
+                      {messageContext.activeProgresses.length ? (
+                        messageContext.activeProgresses.map((progress) => (
+                          <span key={progress.id}>{progress.text}</span>
+                        ))
+                      ) : (
+                        <Translator path="chat.messages.status.thinking" />
+                      )}
+                    </span>
+                  </div>
                 ) : null}
               </React.Fragment>
             );

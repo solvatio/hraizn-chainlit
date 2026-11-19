@@ -22,6 +22,7 @@ import { addMessage } from 'src/utils/message';
 import { v4 as uuidv4 } from 'uuid';
 
 import { ChainlitContext } from './context';
+import { isHostMessage, sendHostSocketMessage } from './hostActions';
 
 type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
@@ -33,6 +34,7 @@ const useChatInteract = () => {
 
   const resetChatSettings = useResetRecoilState(chatSettingsInputsState);
   const resetSessionId = useResetRecoilState(sessionIdState);
+  const resetSession = useResetRecoilState(sessionState);
   const resetChatSettingsValue = useResetRecoilState(chatSettingsValueState);
 
   const setFirstUserInteraction = useSetRecoilState(firstUserInteraction);
@@ -49,6 +51,7 @@ const useChatInteract = () => {
   const clear = useCallback(() => {
     session?.socket.emit('clear_session');
     session?.socket.disconnect();
+    resetSession();
     setIdToResume(undefined);
     resetSessionId();
     setFirstUserInteraction(undefined);
@@ -90,7 +93,11 @@ const useChatInteract = () => {
 
   const windowMessage = useCallback(
     (data: any) => {
+      if (isHostMessage(data)) {
+        return sendHostSocketMessage(session?.socket, data);
+      }
       session?.socket.emit('window_message', data);
+      return Boolean(session?.socket.connected);
     },
     [session?.socket]
   );

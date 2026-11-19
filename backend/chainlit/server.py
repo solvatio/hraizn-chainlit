@@ -10,7 +10,7 @@ import urllib.parse
 import webbrowser
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import List, Optional, Union, cast
+from typing import List, Optional, Union, cast, Callable, Any
 
 import socketio
 from fastapi import (
@@ -38,8 +38,10 @@ from chainlit.auth import create_jwt, decode_jwt, get_configuration, get_current
 from chainlit.auth.cookie import (
     clear_auth_cookie,
     clear_oauth_state_cookie,
-    set_auth_cookie,
+    clear_token_handoff_cookie,
+    get_token_from_handoff_cookie,
     set_oauth_state_cookie,
+    set_token_handoff_cookie,
     validate_oauth_state_cookie, clear_url_state_cookie, get_url_state_from_cookie,
     set_url_state_cookie,
 )
@@ -70,6 +72,8 @@ from chainlit.types import (
     DisconnectMCPRequest,
     ElementRequest,
     GetThreadsRequest,
+    PageInfo,
+    PaginatedResponse,
     ShareThreadRequest,
     Theme,
     UpdateFeedbackRequest,
@@ -79,7 +83,8 @@ from chainlit.user import PersistedUser, User
 from chainlit.utils import utc_now
 
 from ._utils import is_path_inside
-from chainlit.modes import ModeRouterWrapper, get_mode, get_mode_params_redirect, get_mode_from_request
+from chainlit.modes import get_mode, get_mode_params_redirect, get_mode_from_request, \
+    get_mode_config, ModeRouter
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -224,7 +229,29 @@ copilot_build_dir = get_build_dir(os.path.join("libs", "copilot"), "copilot")
 
 app = FastAPI(lifespan=lifespan)
 
-sio = socketio.AsyncServer(cors_allowed_origins=[], async_mode="asgi")
+
+def get_socket_max_http_buffer_size() -> int:
+    default_size = 1_000_000
+    raw_size = os.getenv("CHAINLIT_MAX_HTTP_BUFFER_SIZE", str(default_size))
+    try:
+        size = int(raw_size)
+        if size > 0:
+            return size
+    except ValueError:
+        pass
+
+    logger.warning(
+        "Ignoring invalid CHAINLIT_MAX_HTTP_BUFFER_SIZE value; "
+        "expected a positive integer"
+    )
+    return default_size
+
+
+sio = socketio.AsyncServer(
+    cors_allowed_origins=[],
+    async_mode="asgi",
+    max_http_buffer_size=get_socket_max_http_buffer_size(),
+)
 
 asgi_app = socketio.ASGIApp(socketio_server=sio, socketio_path="")
 
@@ -258,16 +285,31 @@ app.add_middleware(SafariWebSocketsCompatibleGZipMiddleware)
 
 
 # config.run.root_path is only set when started with --root-path. Not on submounts.
-router = ModeRouterWrapper(router = APIRouter(prefix=config.run.root_path), modes=config.project.modes)
+router = ModeRouter(router=APIRouter(prefix=config.run.root_path))
+
 
 
 @router.get("/public/{filename:path}")
 async def serve_public_file(
     filename: str,
+    request: Request,
 ):
     """Serve a file from public dir."""
 
-    base_path = Path(public_dir)
+    root_path = os.getenv("CHAINLIT_PARENT_ROOT_PATH", "") + os.getenv(
+        "CHAINLIT_ROOT_PATH", ""
+    )
+
+    mode = get_mode(root_path, request.url.path)
+    if mode:
+        mode_name = mode.name or mode.default_name
+        base_path = Path(public_dir) / "modes" / mode_name
+        file_path = (base_path / filename).resolve()
+        if not file_path.exists():
+            base_path = Path(public_dir)
+    else:
+        base_path = Path(public_dir)
+
     file_path = (base_path / filename).resolve()
 
     if not is_path_inside(file_path, base_path):
@@ -362,7 +404,22 @@ def replace_between_tags(
     return re.sub(pattern, start_tag + replacement + end_tag, text, flags=re.DOTALL)
 
 
-def get_html_template(root_path):
+def get_root_path_url(root_path: str, url: str) -> str:
+    if (
+        not url.startswith("/")
+        or url.startswith("//")
+        or urllib.parse.urlparse(url).scheme
+    ):
+        return url
+
+    root_path = root_path.rstrip("/")
+    if not root_path or url == root_path or url.startswith(f"{root_path}/"):
+        return url
+
+    return f"{root_path}{url}"
+
+
+def get_html_template(root_path, public_dir = public_dir, config: ChainlitConfig = config):
     """
     Get HTML template for the index view.
     """
@@ -381,11 +438,10 @@ def get_html_template(root_path):
     CSS_PLACEHOLDER = "<!-- CSS INJECTION PLACEHOLDER -->"
 
     default_url = config.ui.custom_meta_url or "https://github.com/Chainlit/chainlit"
-    default_meta_image_url = (
-        "https://chainlit-cloud.s3.eu-west-3.amazonaws.com/logo/chainlit_banner.png"
-    )
-    meta_image_url = config.ui.custom_meta_image_url or default_meta_image_url
     favicon_path = "/favicon"
+    meta_image_url = get_root_path_url(
+        root_path, config.ui.custom_meta_image_url or favicon_path
+    )
 
     tags = f"""<title>{config.ui.name}</title>
     <link rel="icon" href="{favicon_path}" />
@@ -467,28 +523,33 @@ async def auth(request: Request):
 
 
 def _get_response_dict(access_token: str) -> dict:
-    """Get the response dictionary for the auth response."""
+    """Get the response dictionary for the auth response.
 
-    return {"success": True}
+    The access token is returned in the body. The client stores it and sends it
+    as bearer token; no auth cookie is set.
+    """
+
+    return {"success": True, "access_token": access_token}
 
 
 def _get_auth_response(access_token: str, redirect_to_callback: bool, mode: Optional[str], request: Request) -> Response:
     """Get the redirect params for the OAuth callback."""
 
-    response_dict = _get_response_dict(access_token)
-
     if redirect_to_callback:
-        root_path = os.environ.get("CHAINLIT_ROOT_PATH", "")
-        root_path = "" if root_path == "/" else root_path
-        url_state = get_url_state_from_cookie(request)
+        url_state = get_url_state_from_cookie(request) or ""
 
-        return RedirectResponse(
+        # The token must never be part of a URL. It is handed over in a
+        # short-lived HttpOnly cookie which the frontend callback page
+        # exchanges once via POST /auth/token.
+        response = RedirectResponse(
             # FIXME: redirect to the right frontend base url to improve the dev environment
-            url=url_state,
+            url=url_state.rstrip("/") + "/login/callback",
             status_code=302,
         )
+        set_token_handoff_cookie(response, access_token)
+        return response
 
-    return JSONResponse(response_dict)
+    return JSONResponse(_get_response_dict(access_token))
 
 
 def _get_oauth_redirect_error(request: Request, error: str) -> Response:
@@ -519,21 +580,34 @@ async def _authenticate_user(
             status_code=401, detail="Invalid authentication token"
         )
 
-    # If a data layer is defined, attempt to persist user.
-    if data_layer := get_data_layer():
-        try:
-            await data_layer.create_user(user)
-        except Exception as e:
-            # Catch and log exceptions during user creation.
-            # TODO: Make this catch only specific errors and allow others to propagate.
-            logger.error(f"Error creating user: {e}")
-
     access_token = create_jwt(user)
 
     response = _get_auth_response(access_token, redirect_to_callback, mode, request)
 
-    set_auth_cookie(request, response, access_token)
+    # Remove auth cookies of the former cookie based authentication.
+    clear_auth_cookie(request, response)
 
+    return response
+
+
+@router.post("/auth/token")
+async def exchange_token(request: Request):
+    """Exchange the handoff cookie of a redirect based login for the access token."""
+    token = get_token_from_handoff_cookie(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        user = decode_jwt(token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Unauthorized") from e
+
+    if user.metadata.get("mode", None) != get_mode_from_request(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    response = JSONResponse(_get_response_dict(token))
+    # One-time use: the cookie is removed with the first successful exchange.
+    clear_token_handoff_cookie(request, response)
     return response
 
 
@@ -562,7 +636,9 @@ async def login(
 @router.post("/logout")
 async def logout(request: Request, response: Response):
     """Logout the user by calling the on_logout callback."""
+    # The client drops its bearer token. Only leftovers are removed here.
     clear_auth_cookie(request, response)
+    clear_token_handoff_cookie(request, response)
 
     if config.code.on_logout:
         return await config.code.on_logout(request, response)
@@ -594,9 +670,17 @@ async def jwt_auth(request: Request):
 
     try:
         user = decode_jwt(token)
-        return await _authenticate_user(request, user)
     except InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user.metadata.get("mode", None) != get_mode_from_request(request):
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    # Hand back the validated token unchanged. Issuing a fresh token here would
+    # allow extending a session forever beyond user_session_timeout.
+    response = JSONResponse(_get_response_dict(token))
+    clear_auth_cookie(request, response)
+    return response
 
 
 @router.post("/auth/header")
@@ -822,10 +906,22 @@ async def project_translations(
         }
     )
 
+@router.get("/project/language")
+async def project_settings(
+    request: Request,
+):
+    mode = get_mode_from_request(request)
+    cfg = get_mode_config(mode)
+    return JSONResponse(
+        content={
+            "primary_language": cfg.ui.primary_language
+        }
+    )
 
 @router.get("/project/settings")
 async def project_settings(
     current_user: UserParam,
+    request: Request,
     language: str = Query(
         default="en-US", description="Language code", pattern=_language_pattern
     ),
@@ -859,7 +955,8 @@ async def project_settings(
         await data_layer.build_debug_url() if data_layer and config.run.debug else None
     )
 
-    cfg = config
+    mode = get_mode_from_request(request)
+    cfg = get_mode_config(mode)
     if chat_profile and chat_profiles:
         current_profile = next(
             (p for p in chat_profiles if p.name == chat_profile), None
@@ -867,6 +964,7 @@ async def project_settings(
         if current_profile and getattr(current_profile, "config_overrides", None):
             cfg = config.with_overrides(current_profile.config_overrides)
 
+    is_widget = "/m/widget" in request.url.path
     return JSONResponse(
         content={
             "ui": cfg.ui.model_dump(),
@@ -884,6 +982,7 @@ async def project_settings(
             "chatProfiles": profiles,
             "starters": starters,
             "debugUrl": debug_url,
+            "widget": is_widget
         }
     )
 
@@ -960,7 +1059,18 @@ async def get_user_threads(
     if not isinstance(current_user, PersistedUser):
         persisted_user = await data_layer.get_user(identifier=current_user.identifier)
         if not persisted_user:
-            raise HTTPException(status_code=404, detail="User not found")
+            # An authenticated user is persisted only with the first interaction.
+            # Until then, the user cannot own any threads, so return an empty page.
+            return JSONResponse(
+                content=PaginatedResponse(
+                    pageInfo=PageInfo(
+                        hasNextPage=False,
+                        startCursor=None,
+                        endCursor=None,
+                    ),
+                    data=[],
+                ).to_dict()
+            )
         payload.filter.userId = persisted_user.id
     else:
         payload.filter.userId = current_user.id
@@ -1506,6 +1616,7 @@ async def upload_file(
     current_user: UserParam,
     session_id: str,
     file: UploadFile,
+    request: Request,
     ask_parent_id: Optional[str] = None,
 ):
     """Upload a file to the session files directory."""
@@ -1529,6 +1640,9 @@ async def upload_file(
 
     session.files_dir.mkdir(exist_ok=True)
 
+    mode = get_mode_from_request(request)
+    mode_config = get_mode_config(mode)
+
     try:
         content = await file.read()
 
@@ -1543,7 +1657,7 @@ async def upload_file(
             )
 
         try:
-            validate_file_upload(file, spec=spec)
+            validate_file_upload(file, spec=spec, config=mode_config)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -1564,13 +1678,14 @@ async def upload_file(
     finally:
         await file.close()
 
-def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None):
+def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None, config: ChainlitConfig = config):
     """Validate the file upload as configured in config.features.spontaneous_file_upload or by AskFileSpec
     for a specific message.
 
     Args:
         file (UploadFile): The file to validate.
         spec (AskFileSpec): The file spec to validate against if any.
+        cfg (ChainlitConfig): The config
     Raises:
         ValueError: If the file is not allowed.
     """
@@ -1581,11 +1696,11 @@ def validate_file_upload(file: UploadFile, spec: Optional[AskFileSpec] = None):
     if not spec and not config.features.spontaneous_file_upload.enabled:
         raise ValueError("File upload is not enabled")
 
-    validate_file_mime_type(file, spec)
-    validate_file_size(file, spec)
+    validate_file_mime_type(file, spec, config)
+    validate_file_size(file, spec, config)
 
 
-def validate_file_mime_type(file: UploadFile, spec: Optional[AskFileSpec]):
+def validate_file_mime_type(file: UploadFile, spec: Optional[AskFileSpec], config: ChainlitConfig = config):
     """Validate the file mime type as configured in config.features.spontaneous_file_upload.
     Args:
         file (UploadFile): The file to validate.
@@ -1623,7 +1738,7 @@ def validate_file_mime_type(file: UploadFile, spec: Optional[AskFileSpec]):
     raise ValueError("File type not allowed")
 
 
-def validate_file_size(file: UploadFile, spec: Optional[AskFileSpec]):
+def validate_file_size(file: UploadFile, spec: Optional[AskFileSpec], config: ChainlitConfig = config):
     """Validate the file size as configured in config.features.spontaneous_file_upload.
     Args:
         file (UploadFile): The file to validate.
@@ -1677,10 +1792,14 @@ async def get_file(
 
 
 @router.get("/favicon")
-async def get_favicon():
+async def get_favicon(request: Request):
     """Get the favicon for the UI."""
-    custom_favicon_path = os.path.join(APP_ROOT, "public", "favicon.*")
-    files = glob.glob(custom_favicon_path)
+    mode = get_mode_from_request(request)
+    if mode:
+        custom_favicon_path = os.path.join(APP_ROOT, "public", "modes", mode, "favicon.*")
+        files = glob.glob(custom_favicon_path)
+    else:
+        files = []
 
     if files:
         favicon_path = files[0]
@@ -1693,15 +1812,23 @@ async def get_favicon():
 
 
 @router.get("/logo")
-async def get_logo(theme: Optional[Theme] = Query(Theme.light)):
+async def get_logo(request: Request, theme: Optional[Theme] = Query(Theme.light)):
     """Get the default logo for the UI."""
     theme_value = theme.value if theme else Theme.light.value
     logo_path = None
 
-    for path in [
+    paths = []
+
+    mode = get_mode_from_request(request)
+    if mode:
+        paths.append(os.path.join(APP_ROOT, "public", "modes", mode, f"logo_{theme_value}.*"))
+
+    paths.extend([
         os.path.join(APP_ROOT, "public", f"logo_{theme_value}.*"),
-        os.path.join(build_dir, "assets", f"logo_{theme_value}*.*"),
-    ]:
+        os.path.join(build_dir, "assets", f"logo_{theme_value}*.*")]
+    )
+
+    for path in paths:
         files = glob.glob(path)
 
         if files:
@@ -1723,17 +1850,21 @@ async def get_logo(theme: Optional[Theme] = Query(Theme.light)):
 
 
 @router.get("/avatars/{avatar_id:str}")
-async def get_avatar(avatar_id: str):
+async def get_avatar(avatar_id: str, request: Request):
     """Get the avatar for the user based on the avatar_id."""
     if not re.match(r"^[a-zA-Z0-9_ .-]+$", avatar_id):
         raise HTTPException(status_code=400, detail="Invalid avatar_id")
 
-    if avatar_id == "default":
-        avatar_id = config.ui.name
-
     avatar_id = avatar_id.strip().lower().replace(" ", "_").replace(".", "_")
 
     base_path = Path(APP_ROOT) / "public" / "avatars"
+
+    mode_name = get_mode_from_request(request)
+    if mode_name:
+        mode_path = Path(APP_ROOT) / "public" / "modes" / mode_name / "avatars"
+        if mode_path.exists():
+            base_path = mode_path
+
     avatar_pattern = f"{avatar_id}.*"
 
     matching_files = base_path.glob(avatar_pattern)
@@ -1745,7 +1876,7 @@ async def get_avatar(avatar_id: str):
 
         return FileResponse(avatar_path, media_type=media_type)
 
-    return await get_favicon()
+    return await get_favicon(request)
 
 
 @router.underlying.head("/")
@@ -1768,13 +1899,20 @@ async def serve(request: Request, full_path: str):
         return RedirectResponse(url=root_path, status_code=307)
     else:
         mode = get_mode(root_path, request.url.path)
+        mode_public_dir = f"{public_dir}/modes/{mode.name or mode.default_name}"
+        if not os.path.isdir(mode_public_dir):
+            # fallback for "default" behavior
+            mode_public_dir = public_dir
+
         if mode.path:
             root_path += f"/{mode.path}"
-            html_template = get_html_template(root_path)
+            config = get_mode_config(mode.name)
+            html_template = get_html_template(root_path, f"{mode_public_dir}", config=config)
             response = HTMLResponse(content=html_template, status_code=200)
             return response
         elif not mode.default_name:
-            html_template = get_html_template(root_path)
+            config = get_mode_config(mode.default_name)
+            html_template = get_html_template(root_path, f"{mode_public_dir}", config=config)
             response = HTMLResponse(content=html_template, status_code=200)
             return response
         else:

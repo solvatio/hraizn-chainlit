@@ -14,9 +14,14 @@ from chainlit.config import (
     ChainlitConfig,
     SpontaneousFileUploadFeature,
 )
-from chainlit.server import app
-from chainlit.types import AskFileSpec
-from chainlit.user import PersistedUser
+from chainlit.server import (
+    app,
+    get_root_path_url,
+    get_socket_max_http_buffer_size,
+    get_user_threads,
+)
+from chainlit.types import AskFileSpec, GetThreadsRequest, Pagination, ThreadFilter
+from chainlit.user import PersistedUser, User
 
 
 @pytest.fixture
@@ -30,6 +35,65 @@ def mock_load_translation(test_config: ChainlitConfig, monkeypatch: pytest.Monke
     monkeypatch.setattr("chainlit.config.ChainlitConfig.load_translation", mock_method)
 
     return mock_method
+
+
+def test_get_root_path_url_prefixes_root_relative_url():
+    assert (
+        get_root_path_url("/Customer-Selfcare", "/favicon")
+        == "/Customer-Selfcare/favicon"
+    )
+
+
+def test_get_root_path_url_keeps_absolute_url():
+    url = "https://example.com/favicon.png"
+
+    assert get_root_path_url("/Customer-Selfcare", url) == url
+
+
+def test_get_root_path_url_keeps_already_prefixed_url():
+    url = "/Customer-Selfcare/favicon"
+
+    assert get_root_path_url("/Customer-Selfcare", url) == url
+
+
+@pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+def test_socket_buffer_size_uses_default_for_invalid_values(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+):
+    monkeypatch.setenv("CHAINLIT_MAX_HTTP_BUFFER_SIZE", value)
+
+    assert get_socket_max_http_buffer_size() == 1_000_000
+
+
+def test_socket_buffer_size_uses_configured_positive_value(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("CHAINLIT_MAX_HTTP_BUFFER_SIZE", "250000")
+
+    assert get_socket_max_http_buffer_size() == 250_000
+
+
+async def test_get_user_threads_returns_empty_page_for_unpersisted_user(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    data_layer = AsyncMock()
+    data_layer.get_user.return_value = None
+    monkeypatch.setattr("chainlit.server.get_data_layer", lambda: data_layer)
+    user = User(identifier="new-user")
+    payload = GetThreadsRequest(
+        pagination=Pagination(first=20),
+        filter=ThreadFilter(),
+    )
+
+    response = await get_user_threads(Mock(), payload, user)
+
+    assert response.status_code == 200
+    assert response.body == (
+        b'{"pageInfo":{"hasNextPage":false,"startCursor":null,'
+        b'"endCursor":null},"data":[]}'
+    )
+    data_layer.list_threads.assert_not_awaited()
 
 
 def test_project_translations_default_language(
@@ -106,6 +170,7 @@ async def test_project_settings(test_client: TestClient, mock_get_current_user: 
     data = response.json()
 
     assert "ui" in data
+    assert "custom_thinking_image" in data["ui"]
     assert "features" in data
     assert "userEnv" in data
     assert "dataPersistence" in data
@@ -114,6 +179,32 @@ async def test_project_settings(test_client: TestClient, mock_get_current_user: 
     assert "debugUrl" in data
     assert data["chatProfiles"] == []
     assert data["starters"] == []
+
+
+def test_project_settings_exposes_max_char_limit(
+    test_client: TestClient,
+    mock_get_current_user: Mock,
+    test_config: ChainlitConfig,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(test_config.features, "max_char_limit", 8000)
+    monkeypatch.setattr(
+        "chainlit.server.get_mode_config", Mock(return_value=test_config)
+    )
+
+    response = test_client.get("/project/settings")
+
+    assert response.status_code == 200
+    assert response.json()["features"]["max_char_limit"] == 8000
+
+
+def test_max_char_limit_cannot_be_negative():
+    from pydantic import ValidationError
+
+    from chainlit.config import FeaturesSettings
+
+    with pytest.raises(ValidationError):
+        FeaturesSettings(max_char_limit=-1)
 
 
 def test_project_settings_path_traversal(

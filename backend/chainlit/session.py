@@ -69,6 +69,8 @@ class BaseSession:
         environ: Optional[dict[str, Any]] = None,
         # Chat profile selected before the session was created
         chat_profile: Optional[str] = None,
+        # Parameters supplied by the chat page URL
+        chat_parameters: Optional[Dict[str, str]] = None,
     ):
         if thread_id:
             self.thread_id_to_resume = thread_id
@@ -80,6 +82,7 @@ class BaseSession:
         self.user_env = user_env or {}
         self.environ = environ or {}
         self.chat_profile = chat_profile
+        self.chat_parameters = chat_parameters or {}
 
         self.files: Dict[str, FileDict] = {}
         self.files_spec: Dict[str, AskFileSpec] = {}
@@ -158,6 +161,9 @@ class BaseSession:
         if not config.project.persist_user_env:
             # Remove user environment variables (API keys) before persisting to database
             user_session_copy["env"] = {}
+
+        if config.code.on_persist_session:
+            config.code.on_persist_session(user_session_copy)
 
         metadata = clean_metadata(user_session_copy)
         return metadata
@@ -239,6 +245,8 @@ class WebsocketSession(BaseSession):
         token: Optional[str] = None,
         # Chat profile selected before the session was created
         chat_profile: Optional[str] = None,
+        # Parameters supplied by the chat page URL
+        chat_parameters: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             id=id,
@@ -248,6 +256,7 @@ class WebsocketSession(BaseSession):
             user_env=user_env,
             client_type=client_type,
             chat_profile=chat_profile,
+            chat_parameters=chat_parameters,
             environ=environ,
         )
 

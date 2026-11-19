@@ -4,6 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { LoginForm } from '@/components/LoginForm';
 import { Logo } from '@/components/Logo';
 import { useTheme } from '@/components/ThemeProvider';
+import {
+  finishOAuthPopup,
+  isEmbedded,
+  isOAuthPopup,
+  openOAuthPopup
+} from '@/lib/oauthPopup';
 
 import { useQuery } from 'hooks/query';
 
@@ -24,10 +30,10 @@ export default function Login() {
   const { variant } = useTheme();
   const isDarkMode = variant === 'dark';
 
-  const handleCookieAuth = (json: any): void => {
+  const handleTokenAuth = (json: any): void => {
     if (json?.success != true) throw LoginError;
 
-    // Validate login cookie and get user data.
+    // The API client stored the access token. Load the user data.
     setUserFromAPI();
   };
 
@@ -38,7 +44,7 @@ export default function Login() {
     try {
       const json = await jsonPromise;
 
-      handleCookieAuth(json);
+      handleTokenAuth(json);
 
       if (redirectURL) {
         navigate(redirectURL);
@@ -68,8 +74,29 @@ export default function Login() {
     await handleAuth(jsonPromise);
   };
 
+  // Embedded chat: the identity provider cannot be framed, so the login runs
+  // in a popup which hands the access token back to this window.
+  const handleOAuthPopupLogin = async (provider: string) => {
+    const result = await openOAuthPopup(apiClient.getOAuthEndpoint(provider));
+    if (!result) return;
+
+    if ('token' in result) {
+      apiClient.setToken(result.token);
+      setError('');
+      await setUserFromAPI();
+    } else {
+      setError(LoginError.message);
+    }
+  };
+
   useEffect(() => {
-    setError(query.get('error') || '');
+    const oauthError = query.get('error') || '';
+    // A failed login inside the popup is reported to the embedded chat.
+    if (oauthError && isOAuthPopup()) {
+      finishOAuthPopup({ error: oauthError });
+      return;
+    }
+    setError(oauthError);
   }, [query]);
 
   useEffect(() => {
@@ -108,7 +135,11 @@ export default function Login() {
                 config?.passwordAuth ? handlePasswordLogin : undefined
               }
               onOAuthSignIn={async (provider: string) => {
-                window.location.href = apiClient.getOAuthEndpoint(provider);
+                if (isEmbedded()) {
+                  await handleOAuthPopupLogin(provider);
+                } else {
+                  window.location.href = apiClient.getOAuthEndpoint(provider);
+                }
               }}
             />
           </div>

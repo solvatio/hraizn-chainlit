@@ -1,15 +1,15 @@
 import asyncio
 import json
+import logging
+from itertools import islice
 from typing import Any, Dict, Literal, Optional, Tuple, TypedDict, Union
 from urllib.parse import unquote
 
-from starlette.requests import cookie_parser
 from typing_extensions import TypeAlias
 
 import chainlit.modes
 from chainlit.auth import (
     get_current_user,
-    get_token_from_cookies,
     require_login,
 )
 from chainlit.chat_context import chat_context
@@ -20,6 +20,7 @@ from chainlit.logger import logger
 from chainlit.message import ErrorMessage, Message
 from chainlit.server import sio
 from chainlit.session import ClientType, WebsocketSession
+from chainlit.socket_errors import SocketConnectError
 from chainlit.types import (
     InputAudioChunk,
     InputAudioChunkPayload,
@@ -30,13 +31,67 @@ from chainlit.user_session import user_sessions
 
 WSGIEnvironment: TypeAlias = dict[str, Any]
 
+MAX_CHAT_PARAMETERS = 8
+MAX_CHAT_PARAMETER_VALUE_LENGTH = 50
+USER_MESSAGE_TOO_LONG = (
+    "Your message exceeds the maximum allowed length of {max_chars} characters."
+)
+INVALID_USER_MESSAGE = "The message could not be processed."
+
+
+def validate_user_message_payload(
+    payload: MessagePayload,
+    char_limit: int,
+) -> Tuple[Optional[str], Optional[int]]:
+    """Return a safe client error and character count for invalid messages."""
+    if not isinstance(payload, dict):
+        return INVALID_USER_MESSAGE, None
+
+    step = payload.get("message")
+    if not isinstance(step, dict):
+        return INVALID_USER_MESSAGE, None
+
+    content = step.get("output")
+    if not isinstance(content, str):
+        return INVALID_USER_MESSAGE, None
+
+    char_count = len(content)
+    if char_limit > 0 and char_count > char_limit:
+        return USER_MESSAGE_TOO_LONG.format(max_chars=char_limit), char_count
+
+    return None, char_count
+
+
+async def reject_invalid_user_message(
+    session: WebsocketSession,
+    payload: MessagePayload,
+) -> bool:
+    char_limit = session.get_config().features.max_char_limit
+    error, char_count = validate_user_message_payload(payload, char_limit)
+    if error is None:
+        return False
+
+    reason = "too_long" if char_count is not None else "invalid_payload"
+    logger.warning(
+        "Rejected user message: reason=%s char_count=%s max_chars=%s",
+        reason,
+        char_count,
+        char_limit,
+    )
+    context = init_ws_context(session)
+    await context.emitter.send_toast(error, type="error")
+    return True
+
 
 class WebSocketSessionAuth(TypedDict):
     sessionId: str
     userEnv: str | None
+    chatParameters: str | None
     clientType: ClientType
     chatProfile: str | None
     threadId: str | None
+    # Access token (bearer). Cookies are not used for authentication.
+    token: str | None
 
 
 def restore_existing_session(sid, session_id, emit_fn, emit_call_fn):
@@ -94,17 +149,44 @@ def load_user_env(user_env):
     return user_env_dict
 
 
-def _get_token_from_cookie(environ: WSGIEnvironment) -> Optional[str]:
-    if cookie_header := environ.get("HTTP_COOKIE", None):
-        cookies = cookie_parser(cookie_header)
-        return get_token_from_cookies(cookies)
+def load_chat_parameters(chat_parameters: str | None) -> dict[str, str]:
+    if not chat_parameters:
+        return {}
 
-    return None
+    parsed = json.loads(chat_parameters)
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in parsed.items()
+    ):
+        raise ConnectionRefusedError("Invalid chat parameters")
+
+    return {
+        key: value[:MAX_CHAT_PARAMETER_VALUE_LENGTH]
+        for key, value in islice(parsed.items(), MAX_CHAT_PARAMETERS)
+    }
 
 
-def _get_token(environ: WSGIEnvironment) -> Optional[str]:
-    """Take WSGI environ, return access token."""
-    return _get_token_from_cookie(environ)
+def _store_start_parameters_for_new_thread(
+    session_id: str,
+    thread_id: str | None,
+    chat_parameters: dict[str, str],
+) -> None:
+    """Store a separate snapshot of the parameters that started a new thread."""
+    if thread_id:
+        # A resumed thread restores its original start parameters from persisted
+        # metadata; parameters from the current URL must not replace them.
+        return
+
+    session_values = user_sessions.setdefault(session_id, {})
+    # Keep the first snapshot if this function is ever reached more than once for
+    # a session, and copy it so later chat-parameter updates cannot mutate it.
+    session_values.setdefault("start_parameters", dict(chat_parameters))
+
+
+def _get_token(auth: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Take the Socket.IO handshake auth payload, return access token."""
+    token = auth.get("token") if isinstance(auth, dict) else None
+    return token if isinstance(token, str) and token else None
 
 def get_mode_name(environ: dict):
     path_info = environ.get("PATH_INFO", "")
@@ -117,8 +199,9 @@ def get_mode_name(environ: dict):
 
 async def _authenticate_connection(
     environ: WSGIEnvironment,
+    auth: Optional[Dict[str, Any]] = None,
 ) -> Union[Tuple[Union[User, PersistedUser], str], Tuple[None, None]]:
-    if token := _get_token(environ):
+    if token := _get_token(auth):
         user = await get_current_user(token=token, mode_name=get_mode_name(environ))
         if user:
             return user, token
@@ -134,13 +217,13 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
 
     if require_login(get_mode_name(environ)):
         try:
-            user, token = await _authenticate_connection(environ)
+            user, token = await _authenticate_connection(environ, auth)
         except Exception as e:
             logger.exception("Exception authenticating connection: %s", e)
 
         if not user:
             logger.error("Authentication failed in websocket connect.")
-            raise ConnectionRefusedError("authentication failed")
+            raise ConnectionRefusedError(SocketConnectError.AUTHENTICATION_FAILED)
 
         if thread_id:
             data_layer = get_data_layer()
@@ -148,9 +231,15 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
                 logger.error("Data layer is not initialized.")
                 raise ConnectionRefusedError("data layer not initialized")
 
-            if not (await data_layer.get_thread_author(thread_id) == user.identifier):
+            try:
+                author = await data_layer.get_thread_author(thread_id)
+            except Exception as e:
+                logger.exception("Problem resuming thread: thread_id=%s", thread_id)
+                raise ConnectionRefusedError(SocketConnectError.THREAD_NOT_FOUND)
+
+            if not (author == user.identifier):
                 logger.error("Authorization for the thread failed.")
-                raise ConnectionRefusedError("authorization failed")
+                raise ConnectionRefusedError(SocketConnectError.AUTHORIZATION_FAILED)
 
     # Session scoped function to emit to the client
     def emit_fn(event, data):
@@ -161,7 +250,11 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
         return sio.call(event, data, timeout=timeout, to=sid)
 
     session_id = auth["sessionId"]
+    chat_parameters = load_chat_parameters(auth.get("chatParameters"))
     if restore_existing_session(sid, session_id, emit_fn, emit_call_fn):
+        # chat_parameters describe the current connection and may change on a
+        # reconnect. start_parameters remain the snapshot from thread creation.
+        WebsocketSession.require(sid).chat_parameters = chat_parameters
         return True
 
     user_env_string = auth.get("userEnv")
@@ -173,18 +266,24 @@ async def connect(sid: str, environ: WSGIEnvironment, auth: WebSocketSessionAuth
         unquote(url_encoded_chat_profile) if url_encoded_chat_profile else None
     )
 
-    WebsocketSession(
+    session = WebsocketSession(
         id=session_id,
         socket_id=sid,
         emit=emit_fn,
         emit_call=emit_call_fn,
         client_type=client_type,
         user_env=user_env,
+        chat_parameters=chat_parameters,
         user=user,
         token=token,
         chat_profile=chat_profile,
         thread_id=thread_id,
         environ=environ,
+    )
+    _store_start_parameters_for_new_thread(
+        session.id,
+        thread_id,
+        chat_parameters,
     )
 
     return True
@@ -252,6 +351,11 @@ async def disconnect(sid):
 
     async def clear(_sid):
         if session := WebsocketSession.get(_sid):
+            if config.code.on_session_delete:
+                try:
+                    await config.code.on_session_delete(session.id)
+                except Exception:
+                    logging.exception("Failed to call on_session_delete")
             # Clean up the user session
             if session.id in user_sessions:
                 user_sessions.pop(session.id)
@@ -307,6 +411,9 @@ async def process_message(session: WebsocketSession, payload: MessagePayload):
 async def edit_message(sid, payload: MessagePayload):
     """Handle a message sent by the User."""
     session = WebsocketSession.require(sid)
+    if await reject_invalid_user_message(session, payload):
+        return
+
     context = init_ws_context(session)
 
     messages = chat_context.get()
@@ -337,6 +444,8 @@ async def edit_message(sid, payload: MessagePayload):
 async def message(sid, payload: MessagePayload):
     """Handle a message sent by the User."""
     session = WebsocketSession.require(sid)
+    if await reject_invalid_user_message(session, payload):
+        return
 
     task = asyncio.create_task(process_message(session, payload))
     session.current_task = task

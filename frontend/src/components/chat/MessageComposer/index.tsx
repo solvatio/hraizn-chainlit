@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils';
 import {
   MutableRefObject,
   useCallback,
@@ -13,7 +14,8 @@ import {
   IStep,
   useAuth,
   useChatData,
-  useChatInteract
+  useChatInteract,
+  useConfig
 } from '@chainlit/react-client';
 
 import { Settings } from '@/components/icons/Settings';
@@ -65,6 +67,7 @@ export default function MessageComposer({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWebcamBusy, setIsWebcamBusy] = useState(false);
   const [isWebcamEnabled, setIsWebcamEnabled] = useState(false);
+  const [isWebcamAvailable, setIsWebcamAvailable] = useState(false);
   const [isMediaMenuOpen, setIsMediaMenuOpen] = useState(false);
   const [selectedCommand, setSelectedCommand] = useRecoilState(
     persistentCommandState
@@ -76,12 +79,25 @@ export default function MessageComposer({
   const { user } = useAuth();
   const { sendMessage, replyMessage } = useChatInteract();
   const { askUser, chatSettingsInputs, disabled: _disabled } = useChatData();
+  const { config } = useConfig();
+  const maxCharLimit = config?.features?.max_char_limit ?? 0;
+  const hasCharLimit = maxCharLimit > 0;
+  const hasReachedCharLimit = hasCharLimit && value.length >= maxCharLimit;
+  const isMessageTooLong = hasCharLimit && value.length > maxCharLimit;
 
   const disabled =
     _disabled ||
     isSubmitting ||
     isWebcamBusy ||
     !!attachments.find((a) => !a.uploaded);
+  const isWebcamFeatureEnabled = !!config?.features?.webcam?.enabled;
+  const isFileUploadEnabled =
+    !!config?.features?.spontaneous_file_upload?.enabled;
+  const isVoiceEnabled = !!config?.features?.audio?.enabled;
+  const hasMediaMenuActions =
+    (isWebcamFeatureEnabled && isWebcamAvailable) ||
+    isFileUploadEnabled ||
+    isVoiceEnabled;
 
   const isMobile = useIsMobile();
 
@@ -156,6 +172,7 @@ export default function MessageComposer({
   const submit = useCallback(async () => {
     if (
       disabled ||
+      isMessageTooLong ||
       (
         value.trim() === '' &&
         attachments.length === 0 &&
@@ -192,6 +209,7 @@ export default function MessageComposer({
   }, [
     value,
     disabled,
+    isMessageTooLong,
     askUser,
     attachments,
     selectedCommand,
@@ -219,14 +237,27 @@ return (
             ref={inputRef}
             id="chat-input"
             autoFocus={!isMobile}
+            maxLength={hasCharLimit ? maxCharLimit : undefined}
             selectedCommand={selectedCommand}
             setSelectedCommand={setSelectedCommand}
             onChange={setValue}
             onPaste={onPaste}
             onEnter={submit}
             placeholder={t("chat.input.placeholder")}
-            className="min-h-10 py-2 leading-normal"
+            className={cn(
+              'min-h-10 py-2',
+              config?.widget === true
+                ? 'text-sm md:text-base leading-6'
+                : 'text-sm leading-normal'
+            )}
           />
+          {hasReachedCharLimit ? (
+            <p className="px-1 text-xs text-muted-foreground" role="status">
+              {t('chatUserMsgCharLimitReachedShort', {
+                chat_user_msg_char_limit: maxCharLimit
+              })}
+            </p>
+          ) : null}
         </div>
 
         <div className="sticky top-0 h-12 flex items-center gap-1">
@@ -235,51 +266,59 @@ return (
             disabled={disabled}
             hideTrigger
             onError={onFileUploadError}
+            onAvailabilityChange={setIsWebcamAvailable}
             onBusyChange={setIsWebcamBusy}
             onEnabledChange={setIsWebcamEnabled}
           />
-          <DropdownMenu open={isMediaMenuOpen} onOpenChange={setIsMediaMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                disabled={disabled}
-                className="rounded-full hover:bg-foreground/10 hover:text-current"
-                variant="ghost"
-                size="icon"
-                aria-label="Open media actions"
-              >
-                <Plus
-                  className={`!size-5 transition-transform ${
-                    isMediaMenuOpen ? 'rotate-45' : ''
-                  }`}
-                />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              side="top"
-              className="mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+          {hasMediaMenuActions ? (
+            <DropdownMenu
+              open={isMediaMenuOpen}
+              onOpenChange={setIsMediaMenuOpen}
             >
-              <div className="flex flex-col gap-1">
-                <WebcamToggleButton
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
                   disabled={disabled}
-                  isBusy={isWebcamBusy}
-                  isEnabled={isWebcamEnabled}
-                  onClick={() => {
-                    webcamRef.current?.toggleStream();
-                    setIsMediaMenuOpen(false);
-                  }}
-                />
-                <VoiceButton disabled={disabled} />
-                <UploadButton
-                  disabled={disabled}
-                  fileSpec={fileSpec}
-                  onFileUploadError={onFileUploadError}
-                  onFileUpload={onFileUpload}
-                />
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  className="rounded-full text-accent-foreground hover:bg-foreground/10 hover:text-accent-foreground"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Open media actions"
+                >
+                  <Plus
+                    className={`!size-5 transition-transform ${
+                      isMediaMenuOpen ? 'rotate-45' : ''
+                    }`}
+                  />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="top"
+                className="relative left-1.5 mb-2 min-w-0 rounded-2xl border-0 bg-accent p-1.5 shadow-sm dark:bg-card"
+              >
+                <div className="flex flex-col gap-1">
+                  {isWebcamFeatureEnabled && isWebcamAvailable ? (
+                    <WebcamToggleButton
+                      disabled={disabled}
+                      isBusy={isWebcamBusy}
+                      isEnabled={isWebcamEnabled}
+                      onClick={() => {
+                        webcamRef.current?.toggleStream();
+                        setIsMediaMenuOpen(false);
+                      }}
+                    />
+                  ) : null}
+                  <VoiceButton disabled={disabled} />
+                  <UploadButton
+                    disabled={disabled}
+                    fileSpec={fileSpec}
+                    onFileUploadError={onFileUploadError}
+                    onFileUpload={onFileUpload}
+                  />
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           {chatSettingsInputs.length > 0 && (
             <Button
               id="chat-settings-open-modal"
@@ -307,6 +346,7 @@ return (
             onSubmit={submit}
             disabled={
               disabled ||
+              isMessageTooLong ||
               (
                 !value.trim() &&
                 !selectedCommand &&
